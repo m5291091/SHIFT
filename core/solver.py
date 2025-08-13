@@ -38,7 +38,7 @@ def generate_schedule(start_date_str, end_date_str):
     total_penalty_terms = []
     HEADCOUNT_PENALTY_COST = 100000
     DIFFICULTY_BONUS_WEIGHT = 10000 
-    WORK_DAY_DEVIATION_PENALTY = 200
+    WORK_DAY_DEVIATION_PENALTY = 7000
 
     leave_requests_map = defaultdict(set)
     for req in LeaveRequest.objects.filter(status='approved', leave_date__range=[start_date, end_date]):
@@ -69,7 +69,9 @@ def generate_schedule(start_date_str, end_date_str):
         priority_reward = (10000 // (num_possible_shifts + 1)) * (100 - m.priority_score)
         for d in days:
             for p in all_patterns:
-                total_priority_score.append(shifts[(m.id, d, p.id)] * priority_reward)
+                difficulty_bonus = day_difficulty.get(d, 0) * DIFFICULTY_BONUS_WEIGHT
+                score_term = priority_reward + difficulty_bonus
+                total_priority_score.append(shifts[(m.id, d, p.id)] * score_term)
 
     work_days_per_member = []
     for m in all_members:
@@ -92,16 +94,6 @@ def generate_schedule(start_date_str, end_date_str):
             total_penalty_terms.append(abs_deviation * WORK_DAY_DEVIATION_PENALTY)
 
     # --- 4. 制約の追加 ---
-    # 【追加】制約: 担当不可能なシフトには割り当てない
-    for m in all_members:
-        assigned_pattern_ids = {p.id for p in m.assignable_patterns.all()}
-        if assigned_pattern_ids:
-            for p in all_patterns:
-                if p.id not in assigned_pattern_ids:
-                    for d in days:
-                        model.Add(shifts[(m.id, d, p.id)] == 0)
-
-    # (以降の制約は変更なし)
     time_interval = 30
     slot_coverage = defaultdict(list)
     for m in all_members:
@@ -147,22 +139,13 @@ def generate_schedule(start_date_str, end_date_str):
                 model.Add(shifts[(req.member.id, req.leave_date, p.id)] == 0)
     
     for m in all_members:
-        allowed_groups = m.allowed_day_groups.all()
-        if allowed_groups.exists():
-            allowed_weekdays = set()
-            for group in allowed_groups:
-                if group.is_monday: allowed_weekdays.add(0)
-                if group.is_tuesday: allowed_weekdays.add(1)
-                if group.is_wednesday: allowed_weekdays.add(2)
-                if group.is_thursday: allowed_weekdays.add(3)
-                if group.is_friday: allowed_weekdays.add(4)
-                if group.is_saturday: allowed_weekdays.add(5)
-                if group.is_sunday: allowed_weekdays.add(6)
-            for d in days:
-                if d.weekday() not in allowed_weekdays:
-                    for p in all_patterns:
+        assigned_pattern_ids = {p.id for p in m.assignable_patterns.all()}
+        if assigned_pattern_ids:
+            for p in all_patterns:
+                if p.id not in assigned_pattern_ids:
+                    for d in days:
                         model.Add(shifts[(m.id, d, p.id)] == 0)
-
+    
     MIN_REST_MINUTES = 8 * 60
     for m in all_members:
         for d_idx, d in enumerate(days):

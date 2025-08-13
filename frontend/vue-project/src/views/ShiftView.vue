@@ -6,7 +6,6 @@ const startDate = ref('')
 const endDate = ref('')
 const isLoading = ref(false)
 const message = ref('')
-
 const members = ref([])
 const assignments = ref([])
 const leaveRequests = ref([])
@@ -138,63 +137,63 @@ const getHeadcountClass = (date, pattern) => {
 
 const handleShiftChange = async (memberId, date, event) => {
   const selectedValue = event.target.value
+  isLoading.value = true;
+  message.value = '手動変更を保存中...';
   
-  if (selectedValue === 'other') {
-    const activityName = prompt('業務内容を入力してください（例：研修）')
-    if (activityName) {
-      await axios.post('http://127.0.0.1:8000/api/v1/other-assignment/', {
-        member_id: memberId,
-        shift_date: date,
-        activity_name: activityName,
-      })
-      await fetchScheduleData()
+  try {
+    if (selectedValue === 'other') {
+      const activityName = prompt('業務内容を入力してください（例：研修）');
+      if (activityName) {
+        await axios.post('http://127.0.0.1:8000/api/v1/other-assignment/', {
+          member_id: memberId, shift_date: date, activity_name: activityName,
+        });
+      }
+    } else {
+      const patternId = selectedValue === 'delete' ? null : selectedValue;
+      await axios.post('http://127.0.0.1:8000/api/v1/manual-assignment/', {
+        member_id: memberId, shift_date: date, pattern_id: patternId,
+      });
     }
-  } else {
-    const patternId = selectedValue === 'delete' ? null : selectedValue
-    await axios.post('http://127.0.0.1:8000/api/v1/manual-assignment/', {
-      member_id: memberId,
-      shift_date: date,
-      pattern_id: patternId,
-    })
-    await fetchScheduleData()
+    await fetchScheduleData(true);
+    message.value = '手動変更が保存されました。';
+  } catch (error) {
+    message.value = '手動変更の保存に失敗しました。';
+    console.error(error);
+  } finally {
+    isLoading.value = false;
   }
 }
 
 const generateShifts = async () => {
   if (!startDate.value || !endDate.value) {
-    message.value = '開始日と終了日を選択してください。'
-    return
+    message.value = '開始日と終了日を選択してください。';
+    return;
   }
-  isLoading.value = true
-  message.value = 'シフトを生成中です...'
-  infeasibleDays.value = {}
-  
-  // 【修正箇所】「その他」シフトのリストもリセットする
-  assignments.value = []
-  otherAssignments.value = []
+  isLoading.value = true;
+  message.value = 'シフトを生成中です...';
   
   try {
     const response = await axios.post('http://127.0.0.1:8000/api/v1/generate-shifts/', {
       start_date: startDate.value,
       end_date: endDate.value,
-    })
+    });
     
-    infeasibleDays.value = response.data.infeasible_days || {}
-    assignments.value = response.data.assignments || []
+    infeasibleDays.value = response.data.infeasible_days || {};
+    assignments.value = response.data.assignments || [];
     
     if (Object.keys(infeasibleDays.value).length > 0) {
-      message.value = '人員不足のため一部の日付が生成できませんでした。'
+      message.value = '人員不足のため一部の日付が生成できませんでした。';
     } else if (response.data.success) {
-      message.value = '生成が完了しました。'
+      message.value = '生成が完了しました。';
     } else {
-      message.value = 'シフト生成に失敗しました。ルールが厳しすぎる可能性があります。'
+      message.value = 'シフト生成に失敗しました。ルールが厳しすぎる可能性があります。';
     }
-    await fetchScheduleData(false)
+    await fetchScheduleData(false); // assignments以外を再取得
   } catch (error) {
-    console.error('リクエストエラー:', error)
-    message.value = 'サーバーとの通信中にエラーが発生しました。'
+    console.error('リクエストエラー:', error);
+    message.value = 'サーバーとの通信中にエラーが発生しました。';
   } finally {
-    isLoading.value = false
+    isLoading.value = false;
   }
 }
 
@@ -202,17 +201,17 @@ const fetchScheduleData = async (shouldFetchAssignments = true) => {
   try {
     const response = await axios.get('http://127.0.0.1:8000/api/v1/schedule-data/', {
       params: { start_date: startDate.value, end_date: endDate.value },
-    })
+    });
     if (shouldFetchAssignments) {
-        assignments.value = response.data.assignments
+        assignments.value = response.data.assignments;
     }
-    leaveRequests.value = response.data.leave_requests
-    members.value = response.data.members
-    availabilities.value = response.data.availabilities
-    earnings.value = response.data.earnings
-    otherAssignments.value = response.data.other_assignments
+    leaveRequests.value = response.data.leave_requests;
+    members.value = response.data.members;
+    availabilities.value = response.data.availabilities;
+    earnings.value = response.data.earnings;
+    otherAssignments.value = response.data.other_assignments;
   } catch (error) {
-    console.error('スケジュールデータの読み込みに失敗しました:', error)
+    console.error('スケジュールデータの読み込みに失敗しました:', error);
   }
 }
 </script>
@@ -257,7 +256,6 @@ const fetchScheduleData = async (shouldFetchAssignments = true) => {
             <td v-for="header in dateHeaders" :key="header.date" 
                 :class="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].type : 'empty'"
                 :title="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].reason : ''">
-              
               <select 
                 v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'infeasible' && scheduleGrid[member.id][header.date].type !== 'leave'" 
                 :value="scheduleGrid[member.id][header.date].patternId"
