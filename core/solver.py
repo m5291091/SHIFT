@@ -1,5 +1,5 @@
 from ortools.sat.python import cp_model
-from .models import Member, ShiftPattern, LeaveRequest, TimeSlotRequirement, Assignment, DayGroup, RelationshipGroup
+from .models import Member, ShiftPattern, LeaveRequest, TimeSlotRequirement, Assignment, DayGroup, RelationshipGroup, OtherAssignment
 from .serializers import AssignmentSerializer
 from datetime import date, timedelta, datetime, time
 from collections import defaultdict
@@ -37,18 +37,71 @@ def generate_schedule(start_date_str, end_date_str):
     total_priority_score = []
     total_penalty_terms = []
     HEADCOUNT_PENALTY_COST = 100000
-    DIFFICULTY_BONUS_WEIGHT = 10000
+    DIFFICULTY_BONUS_WEIGHT = 10000 
+    WORK_DAY_DEVIATION_PENALTY = 200
 
+    leave_requests_map = defaultdict(set)
+    for req in LeaveRequest.objects.filter(status='approved', leave_date__range=[start_date, end_date]):
+        leave_requests_map[req.member_id].add(req.leave_date)
+    
     for m in all_members:
+        num_possible_shifts = 0
+        allowed_patterns = {p.id for p in m.assignable_patterns.all()}
+        allowed_groups = m.allowed_day_groups.all()
+        allowed_weekdays = set()
+        if allowed_groups.exists():
+            for group in allowed_groups:
+                if group.is_monday: allowed_weekdays.add(0)
+                if group.is_tuesday: allowed_weekdays.add(1)
+                if group.is_wednesday: allowed_weekdays.add(2)
+                if group.is_thursday: allowed_weekdays.add(3)
+                if group.is_friday: allowed_weekdays.add(4)
+                if group.is_saturday: allowed_weekdays.add(5)
+                if group.is_sunday: allowed_weekdays.add(6)
+        
+        for d in days:
+            if d in leave_requests_map.get(m.id, set()): continue
+            if allowed_groups.exists() and d.weekday() not in allowed_weekdays: continue
+            for p in all_patterns:
+                if allowed_patterns and p.id not in allowed_patterns: continue
+                num_possible_shifts += 1
+        
+        priority_reward = (10000 // (num_possible_shifts + 1)) * (100 - m.priority_score)
         for d in days:
             for p in all_patterns:
-                priority_reward = 100 - m.priority_score
-                work_minutes = shift_work_minutes[p.id]
-                difficulty_bonus = day_difficulty.get(d, 0) * DIFFICULTY_BONUS_WEIGHT
-                score_term = (priority_reward * work_minutes) + difficulty_bonus
-                total_priority_score.append(shifts[(m.id, d, p.id)] * score_term)
+                total_priority_score.append(shifts[(m.id, d, p.id)] * priority_reward)
+
+    work_days_per_member = []
+    for m in all_members:
+        work_days = []
+        for d in days:
+            is_working_day = model.NewBoolVar(f'is_working_for_fairness_m{m.id}_d{d}')
+            model.Add(sum(shifts.get((m.id, d, p.id), 0) for p in all_patterns) >= 1).OnlyEnforceIf(is_working_day)
+            model.Add(sum(shifts.get((m.id, d, p.id), 0) for p in all_patterns) == 0).OnlyEnforceIf(is_working_day.Not())
+            work_days.append(is_working_day)
+        work_days_per_member.append(sum(work_days))
+    
+    if len(work_days_per_member) > 1:
+        total_work_days_all_members = sum(work_days_per_member)
+        for i, work_days_sum in enumerate(work_days_per_member):
+            member_id = all_members[i].id
+            deviation = model.NewIntVar(-len(days) * len(all_members), len(days) * len(all_members), f'deviation_m_{member_id}')
+            model.Add(len(all_members) * work_days_sum - total_work_days_all_members == deviation)
+            abs_deviation = model.NewIntVar(0, len(days) * len(all_members), f'abs_deviation_m_{member_id}')
+            model.AddAbsEquality(abs_deviation, deviation)
+            total_penalty_terms.append(abs_deviation * WORK_DAY_DEVIATION_PENALTY)
 
     # --- 4. 制約の追加 ---
+    # 【追加】制約: 担当不可能なシフトには割り当てない
+    for m in all_members:
+        assigned_pattern_ids = {p.id for p in m.assignable_patterns.all()}
+        if assigned_pattern_ids:
+            for p in all_patterns:
+                if p.id not in assigned_pattern_ids:
+                    for d in days:
+                        model.Add(shifts[(m.id, d, p.id)] == 0)
+
+    # (以降の制約は変更なし)
     time_interval = 30
     slot_coverage = defaultdict(list)
     for m in all_members:
@@ -94,12 +147,6 @@ def generate_schedule(start_date_str, end_date_str):
                 model.Add(shifts[(req.member.id, req.leave_date, p.id)] == 0)
     
     for m in all_members:
-        assigned_pattern_ids = {p.id for p in m.assignable_patterns.all()}
-        if assigned_pattern_ids:
-            for p in all_patterns:
-                if p.id not in assigned_pattern_ids:
-                    for d in days:
-                        model.Add(shifts[(m.id, d, p.id)] == 0)
         allowed_groups = m.allowed_day_groups.all()
         if allowed_groups.exists():
             allowed_weekdays = set()
@@ -146,23 +193,23 @@ def generate_schedule(start_date_str, end_date_str):
             work_days_in_period.append(is_working_day)
         
         num_days_in_period = len(days)
-        total_work_days = sum(work_days_in_period)
+        total_work_days_sum = sum(work_days_in_period)
         
-        if m.employee_type == 'salaried' or m.enforce_exact_holidays:
+        if m.enforce_exact_holidays:
             required_work_days = num_days_in_period - m.min_monthly_days_off
             if required_work_days >= 0:
-                model.Add(total_work_days == required_work_days)
+                model.Add(total_work_days_sum == required_work_days)
         else:
             max_work_days = num_days_in_period - m.min_monthly_days_off
             if max_work_days >= 0:
-                model.Add(total_work_days <= max_work_days)
+                model.Add(total_work_days_sum <= max_work_days)
 
     # --- 5. 目的関数の設定 ---
     model.Maximize(sum(total_priority_score) - sum(total_penalty_terms))
 
     # --- 6. ソルバーの実行 & 結果の保存 ---
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 15.0 # タイムアウトを15秒に設定
+    solver.parameters.max_time_in_seconds = 15.0
     status = solver.Solve(model)
     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
         Assignment.objects.filter(shift_date__range=[start_date, end_date]).delete()
@@ -175,6 +222,6 @@ def generate_schedule(start_date_str, end_date_str):
         Assignment.objects.bulk_create(new_assignments)
         
         serializer = AssignmentSerializer(new_assignments, many=True)
-        return {'success': True, 'infeasible_days': [], 'assignments': serializer.data}
+        return {'success': True, 'infeasible_days': {}, 'assignments': serializer.data}
     
-    return {'success': False, 'infeasible_days': [], 'assignments': []}
+    return {'success': False, 'infeasible_days': {}, 'assignments': []}

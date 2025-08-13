@@ -12,7 +12,7 @@ const assignments = ref([])
 const leaveRequests = ref([])
 const availabilities = ref([])
 const shiftPatterns = ref([])
-const infeasibleDays = ref([])
+const infeasibleDays = ref({})
 const earnings = ref({})
 const otherAssignments = ref([])
 
@@ -25,6 +25,13 @@ onMounted(async () => {
   }
   await fetchScheduleData(true);
 })
+
+const getAssignablePatternsForMember = (member) => {
+  if (!member.assignable_patterns || member.assignable_patterns.length === 0) {
+    return shiftPatterns.value;
+  }
+  return shiftPatterns.value.filter(p => member.assignable_patterns.includes(p.id));
+}
 
 const formatDate = (dateObj) => {
   const y = dateObj.getFullYear();
@@ -84,12 +91,12 @@ const scheduleGrid = computed(() => {
   members.value.forEach(member => {
     grid[member.id] = {}
     dateHeaders.value.forEach(header => {
-      if (infeasibleDays.value.includes(header.date)) {
-        grid[member.id][header.date] = { text: '人員不足', type: 'infeasible', patternId: null }
+      if (infeasibleDays.value[header.date]) {
+        grid[member.id][header.date] = { text: '人員不足', type: 'infeasible', patternId: null, reason: infeasibleDays.value[header.date] }
       } else {
         grid[member.id][header.date] = { text: '/', type: 'empty', patternId: null }
         const dayOfWeek = new Date(header.date + 'T00:00:00').getDay()
-        const dayOfWeekForDjango = (dayOfWeek === 0) ? 6 : dayOfWeek - 1;
+        const dayOfWeekForDjango = (dayOfWeek + 6) % 7;
         const isAvailable = availabilities.value.some(avail => 
           avail.member === member.id && avail.day_of_week === dayOfWeekForDjango
         )
@@ -111,21 +118,30 @@ const scheduleGrid = computed(() => {
   })
   otherAssignments.value.forEach(a => {
     if (grid[a.member]) {
-      grid[a.member][a.shift_date] = { text: a.activity_name, type: 'other', patternId: null }
+      grid[a.member][a.shift_date] = { text: a.activity_name, type: 'other', patternId: 'other' }
     }
   })
   return grid
 })
 
+const getHeadcountClass = (date, pattern) => {
+  const count = dailyHeadcounts.value[date]?.[pattern.pattern_name];
+  if (count === undefined) return '';
+  if (pattern.min_headcount > 0 && count < pattern.min_headcount) {
+    return 'headcount-shortage';
+  }
+  if (pattern.max_headcount !== null && count > pattern.max_headcount) {
+    return 'headcount-surplus';
+  }
+  return '';
+}
+
 const handleShiftChange = async (memberId, date, event) => {
   const selectedValue = event.target.value
-  const gridCell = scheduleGrid.value[memberId][date]
   
   if (selectedValue === 'other') {
     const activityName = prompt('業務内容を入力してください（例：研修）')
     if (activityName) {
-      gridCell.text = activityName
-      gridCell.type = 'other'
       await axios.post('http://127.0.0.1:8000/api/v1/other-assignment/', {
         member_id: memberId,
         shift_date: date,
@@ -135,17 +151,6 @@ const handleShiftChange = async (memberId, date, event) => {
     }
   } else {
     const patternId = selectedValue === 'delete' ? null : selectedValue
-    if (patternId) {
-      const pattern = shiftPatterns.value.find(p => p.id == patternId)
-      gridCell.text = pattern.pattern_name
-      gridCell.type = 'assigned'
-    } else {
-      const dayOfWeek = new Date(date + 'T00:00:00').getDay()
-      const dayOfWeekForDjango = (dayOfWeek === 0) ? 6 : dayOfWeek - 1;
-      const isAvailable = availabilities.value.some(avail => avail.member === memberId && avail.day_of_week === dayOfWeekForDjango)
-      gridCell.text = isAvailable ? '-' : '/'
-      gridCell.type = isAvailable ? 'available' : 'empty'
-    }
     await axios.post('http://127.0.0.1:8000/api/v1/manual-assignment/', {
       member_id: memberId,
       shift_date: date,
@@ -162,7 +167,11 @@ const generateShifts = async () => {
   }
   isLoading.value = true
   message.value = 'シフトを生成中です...'
-  infeasibleDays.value = []
+  infeasibleDays.value = {}
+  
+  // 【修正箇所】「その他」シフトのリストもリセットする
+  assignments.value = []
+  otherAssignments.value = []
   
   try {
     const response = await axios.post('http://127.0.0.1:8000/api/v1/generate-shifts/', {
@@ -170,10 +179,10 @@ const generateShifts = async () => {
       end_date: endDate.value,
     })
     
-    infeasibleDays.value = response.data.infeasible_days || []
+    infeasibleDays.value = response.data.infeasible_days || {}
     assignments.value = response.data.assignments || []
     
-    if (infeasibleDays.value.length > 0) {
+    if (Object.keys(infeasibleDays.value).length > 0) {
       message.value = '人員不足のため一部の日付が生成できませんでした。'
     } else if (response.data.success) {
       message.value = '生成が完了しました。'
@@ -246,7 +255,9 @@ const fetchScheduleData = async (shouldFetchAssignments = true) => {
               </div>
             </td>
             <td v-for="header in dateHeaders" :key="header.date" 
-                :class="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].type : 'empty'">
+                :class="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].type : 'empty'"
+                :title="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].reason : ''">
+              
               <select 
                 v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'infeasible' && scheduleGrid[member.id][header.date].type !== 'leave'" 
                 :value="scheduleGrid[member.id][header.date].patternId"
@@ -254,7 +265,7 @@ const fetchScheduleData = async (shouldFetchAssignments = true) => {
               >
                 <option :value="scheduleGrid[member.id][header.date].patternId" selected disabled>{{ scheduleGrid[member.id][header.date].text }}</option>
                 <option v-if="scheduleGrid[member.id][header.date].type !== 'empty' && scheduleGrid[member.id][header.date].type !== 'available'" value="delete">（削除）</option>
-                <option v-for="pattern in shiftPatterns" :key="pattern.id" :value="pattern.id">
+                <option v-for="pattern in getAssignablePatternsForMember(member)" :key="pattern.id" :value="pattern.id">
                   {{ pattern.pattern_name }}
                 </option>
                 <option value="other">その他...</option>
@@ -266,8 +277,8 @@ const fetchScheduleData = async (shouldFetchAssignments = true) => {
         <tfoot v-if="shiftPatterns.length > 0">
           <tr v-for="pattern in shiftPatterns" :key="pattern.id">
             <td class="sticky-col summary-header">{{ pattern.pattern_name }} 人数</td>
-            <td v-for="header in dateHeaders" :key="header.date">
-              {{ dailyHeadcounts && dailyHeadcounts[header.date] ? dailyHeadcounts[header.date][pattern.pattern_name] : 0 }}
+            <td v-for="header in dateHeaders" :key="header.date" :class="getHeadcountClass(header.date, pattern)">
+              {{ dailyHeadcounts[header.date] ? dailyHeadcounts[header.date][pattern.pattern_name] : 0 }}
             </td>
           </tr>
         </tfoot>
@@ -293,6 +304,7 @@ th, td {
   text-align: center;
   min-width: 100px;
   height: 40px;
+  vertical-align: middle;
 }
 th {
   background-color: #f4f4f4;
@@ -318,12 +330,12 @@ td select {
   z-index: 1;
   min-width: 150px;
 }
-td.leave { background-color: #fce4e4; color: #9b2c2c; font-weight: bold; }
-td.other { background-color: #e2e8f0; }
+td.leave { background-color: #fce4e4; color: #9b2c2c; font-weight: bold; padding: 8px 4px; }
+td.other { background-color: #dbeafe; color: #1e40af; }
 td.assigned { background-color: #e6fffa; }
 td.available { background-color: #f7fafc; }
 td.empty { background-color: #edf2f7; color: #a0aec0; }
-td.infeasible { background-color: #fff5e6; color: #b7791f; font-weight: bold; font-size: 0.9em; }
+td.infeasible { background-color: #fff5e6; color: #b7791f; font-weight: bold; font-size: 0.9em; padding: 8px 4px;}
 .stats {
   font-size: 0.8em;
   color: #555;
@@ -338,5 +350,13 @@ tfoot {
   position: sticky;
   left: 0;
   z-index: 2;
+}
+.headcount-shortage {
+  background-color: #ffebee;
+  color: #c62828;
+}
+.headcount-surplus {
+  background-color: #fff3e0;
+  color: #ef6c00;
 }
 </style>

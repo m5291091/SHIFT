@@ -1,3 +1,4 @@
+# (省略部分はありません。このファイル全体を置き換えてください)
 from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -46,20 +47,24 @@ class ScheduleDataView(APIView):
         other_assignments = OtherAssignment.objects.filter(shift_date__range=[start_date, end_date])
         other_serializer = OtherAssignmentSerializer(other_assignments, many=True)
 
-        earnings_map = defaultdict(int)
+        earnings_map = defaultdict(float)
+        premium_start, premium_end = time(22, 0), time(5, 0)
         for assign in assignments:
             if assign.member.employee_type == 'hourly' and assign.member.hourly_wage:
                 p = assign.shift_pattern
                 total_duration = (datetime.combine(date.today(), p.end_time) - datetime.combine(date.today(), p.start_time)).total_seconds() / 60
                 if p.end_time < p.start_time: total_duration += 24 * 60
                 work_minutes = total_duration - p.break_minutes
+                
                 premium_minutes = 0
                 current_time = datetime.combine(date.today(), p.start_time)
                 for _ in range(int(total_duration)):
-                    if current_time.time() >= time(22,0) or current_time.time() < time(5,0):
+                    if current_time.time() >= premium_start or current_time.time() < premium_end:
                         premium_minutes += 1
                     current_time += timedelta(minutes=1)
+                
                 normal_minutes = work_minutes - premium_minutes
+                
                 earnings = (normal_minutes * assign.member.hourly_wage) + (premium_minutes * assign.member.hourly_wage * 1.25)
                 earnings_map[assign.member.id] += earnings / 60
         
