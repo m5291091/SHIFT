@@ -1,5 +1,5 @@
 from ortools.sat.python import cp_model
-from .models import Member, ShiftPattern, LeaveRequest, TimeSlotRequirement, Assignment, DayGroup, RelationshipGroup, OtherAssignment
+from .models import Member, ShiftPattern, LeaveRequest, TimeSlotRequirement, Assignment, DayGroup, RelationshipGroup
 from .serializers import AssignmentSerializer
 from datetime import date, timedelta, datetime, time
 from collections import defaultdict
@@ -12,7 +12,6 @@ def generate_schedule(start_date_str, end_date_str):
 
     all_members = Member.objects.all().prefetch_related('assignable_patterns', 'allowed_day_groups')
     all_patterns = ShiftPattern.objects.all()
-    night_shift_pattern_ids = {p.id for p in all_patterns if p.is_night_shift}
 
     shift_work_minutes = {}
     for p in all_patterns:
@@ -73,7 +72,6 @@ def generate_schedule(start_date_str, end_date_str):
             if incompatible_shifts_in_slot:
                 model.Add(sum(incompatible_shifts_in_slot) <= 1)
 
-    # 時間帯別必要人数を「努力目標」として設定
     for d in days:
         day_name_field = f"is_{d.strftime('%A').lower()}"
         applicable_groups = DayGroup.objects.filter(**{day_name_field: True})
@@ -90,7 +88,6 @@ def generate_schedule(start_date_str, end_date_str):
                 if rule_for_slot.max_headcount is not None:
                     model.Add(sum(workers_in_slot) <= rule_for_slot.max_headcount)
     
-    # 他の絶対条件
     for req in LeaveRequest.objects.filter(status='approved', leave_date__range=[start_date, end_date]):
         for p in all_patterns:
             if (req.member.id, req.leave_date, p.id) in shifts:
@@ -151,7 +148,7 @@ def generate_schedule(start_date_str, end_date_str):
         num_days_in_period = len(days)
         total_work_days = sum(work_days_in_period)
         
-        if m.employee_type == 'salaried':
+        if m.employee_type == 'salaried' or m.enforce_exact_holidays:
             required_work_days = num_days_in_period - m.min_monthly_days_off
             if required_work_days >= 0:
                 model.Add(total_work_days == required_work_days)
@@ -165,6 +162,7 @@ def generate_schedule(start_date_str, end_date_str):
 
     # --- 6. ソルバーの実行 & 結果の保存 ---
     solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = 15.0 # タイムアウトを15秒に設定
     status = solver.Solve(model)
     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
         Assignment.objects.filter(shift_date__range=[start_date, end_date]).delete()

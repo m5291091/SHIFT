@@ -23,6 +23,7 @@ onMounted(async () => {
   } catch (error) {
     console.error('シフトパターンの取得に失敗しました:', error)
   }
+  await fetchScheduleData(true);
 })
 
 const formatDate = (dateObj) => {
@@ -62,7 +63,6 @@ const memberStats = computed(() => {
   return stats
 })
 
-// 【追加】日ごと・シフトパターンごとの人数を集計する
 const dailyHeadcounts = computed(() => {
   const counts = {}
   dateHeaders.value.forEach(header => {
@@ -119,9 +119,13 @@ const scheduleGrid = computed(() => {
 
 const handleShiftChange = async (memberId, date, event) => {
   const selectedValue = event.target.value
+  const gridCell = scheduleGrid.value[memberId][date]
+  
   if (selectedValue === 'other') {
     const activityName = prompt('業務内容を入力してください（例：研修）')
     if (activityName) {
+      gridCell.text = activityName
+      gridCell.type = 'other'
       await axios.post('http://127.0.0.1:8000/api/v1/other-assignment/', {
         member_id: memberId,
         shift_date: date,
@@ -131,6 +135,17 @@ const handleShiftChange = async (memberId, date, event) => {
     }
   } else {
     const patternId = selectedValue === 'delete' ? null : selectedValue
+    if (patternId) {
+      const pattern = shiftPatterns.value.find(p => p.id == patternId)
+      gridCell.text = pattern.pattern_name
+      gridCell.type = 'assigned'
+    } else {
+      const dayOfWeek = new Date(date + 'T00:00:00').getDay()
+      const dayOfWeekForDjango = (dayOfWeek === 0) ? 6 : dayOfWeek - 1;
+      const isAvailable = availabilities.value.some(avail => avail.member === memberId && avail.day_of_week === dayOfWeekForDjango)
+      gridCell.text = isAvailable ? '-' : '/'
+      gridCell.type = isAvailable ? 'available' : 'empty'
+    }
     await axios.post('http://127.0.0.1:8000/api/v1/manual-assignment/', {
       member_id: memberId,
       shift_date: date,
@@ -234,6 +249,7 @@ const fetchScheduleData = async (shouldFetchAssignments = true) => {
                 :class="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].type : 'empty'">
               <select 
                 v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'infeasible' && scheduleGrid[member.id][header.date].type !== 'leave'" 
+                :value="scheduleGrid[member.id][header.date].patternId"
                 @change="handleShiftChange(member.id, header.date, $event)"
               >
                 <option :value="scheduleGrid[member.id][header.date].patternId" selected disabled>{{ scheduleGrid[member.id][header.date].text }}</option>
@@ -251,11 +267,11 @@ const fetchScheduleData = async (shouldFetchAssignments = true) => {
           <tr v-for="pattern in shiftPatterns" :key="pattern.id">
             <td class="sticky-col summary-header">{{ pattern.pattern_name }} 人数</td>
             <td v-for="header in dateHeaders" :key="header.date">
-              {{ dailyHeadcounts[header.date] ? dailyHeadcounts[header.date][pattern.pattern_name] : 0 }}
+              {{ dailyHeadcounts && dailyHeadcounts[header.date] ? dailyHeadcounts[header.date][pattern.pattern_name] : 0 }}
             </td>
           </tr>
         </tfoot>
-        </table>
+      </table>
     </div>
   </div>
 </template>

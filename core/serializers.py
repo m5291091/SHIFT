@@ -16,7 +16,7 @@ class AssignmentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Assignment
-        fields = ['id', 'shift_date', 'member_name', 'shift_pattern_name', 'member_id'] # fieldsにも追加
+        fields = ['id', 'shift_date', 'member_name', 'shift_pattern_name', 'member_id', 'shift_pattern'] # fieldsにも追加
 
 class MemberAvailabilitySerializer(serializers.ModelSerializer):
     class Meta:

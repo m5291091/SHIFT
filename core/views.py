@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from datetime import date, datetime, time, timedelta
 from collections import defaultdict
 
-from .models import Member, Assignment, LeaveRequest, MemberAvailability, ShiftPattern, OtherAssignment
+from .models import Member, Assignment, LeaveRequest, MemberAvailability, ShiftPattern, OtherAssignment, TimeSlotRequirement
 from .serializers import MemberSerializer, AssignmentSerializer, MemberAvailabilitySerializer, ShiftPatternSerializer, OtherAssignmentSerializer
 from .solver import generate_schedule
 
@@ -20,12 +20,16 @@ class ScheduleDataView(APIView):
     def get(self, request, *args, **kwargs):
         start_date_str = self.request.query_params.get('start_date')
         end_date_str = self.request.query_params.get('end_date')
+        
+        members = Member.objects.all().order_by('sort_order', 'name')
+        member_serializer = MemberSerializer(members, many=True)
 
         if not start_date_str or not end_date_str:
-            # 従業員リストだけでも返すように修正
-            members = Member.objects.all().order_by('sort_order', 'name')
-            member_serializer = MemberSerializer(members, many=True)
-            return Response({'members': member_serializer.data})
+            return Response({
+                'members': member_serializer.data,
+                'assignments': [], 'leave_requests': [], 'availabilities': [],
+                'other_assignments': [], 'earnings': {},
+            })
 
         start_date = date.fromisoformat(start_date_str)
         end_date = date.fromisoformat(end_date_str)
@@ -35,9 +39,6 @@ class ScheduleDataView(APIView):
 
         leave_requests = LeaveRequest.objects.filter(status='approved', leave_date__range=[start_date, end_date])
         leave_data = [{'leave_date': str(req.leave_date), 'member_id': req.member.id} for req in leave_requests]
-
-        members = Member.objects.all().order_by('sort_order', 'name')
-        member_serializer = MemberSerializer(members, many=True)
         
         availabilities = MemberAvailability.objects.all()
         availability_serializer = MemberAvailabilitySerializer(availabilities, many=True)
@@ -52,16 +53,13 @@ class ScheduleDataView(APIView):
                 total_duration = (datetime.combine(date.today(), p.end_time) - datetime.combine(date.today(), p.start_time)).total_seconds() / 60
                 if p.end_time < p.start_time: total_duration += 24 * 60
                 work_minutes = total_duration - p.break_minutes
-                
                 premium_minutes = 0
                 current_time = datetime.combine(date.today(), p.start_time)
                 for _ in range(int(total_duration)):
                     if current_time.time() >= time(22,0) or current_time.time() < time(5,0):
                         premium_minutes += 1
                     current_time += timedelta(minutes=1)
-                
                 normal_minutes = work_minutes - premium_minutes
-                
                 earnings = (normal_minutes * assign.member.hourly_wage) + (premium_minutes * assign.member.hourly_wage * 1.25)
                 earnings_map[assign.member.id] += earnings / 60
         
