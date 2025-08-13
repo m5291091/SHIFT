@@ -10,3 +10,7 @@ class BulkLeaveRequestForm(forms.Form):
         label="希望休（カレンダーで選択）",
         widget=forms.HiddenInput() # このフィールドはJSで操作するため非表示
     )
+
+class BulkUpdateMinDaysOffForm(forms.Form):
+    min_monthly_days_off = forms.IntegerField(label="新しい月の最低公休日数")
+    

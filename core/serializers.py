@@ -1,6 +1,6 @@
 from rest_framework import serializers
-from .models import Member
-from .models import Member, Assignment, ShiftPattern, MemberAvailability# Assignment を追加
+from .models import Member, Assignment, ShiftPattern, MemberAvailability, OtherAssignment
+
 
 
 class MemberSerializer(serializers.ModelSerializer):
@@ -22,4 +22,14 @@ class MemberAvailabilitySerializer(serializers.ModelSerializer):
     class Meta:
         model = MemberAvailability
         # このモデルの全てのフィールドを対象にする
+        fields = '__all__'
+
+class ShiftPatternSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShiftPattern
+        fields = ['id', 'pattern_name']
+
+class OtherAssignmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OtherAssignment
         fields = '__all__'

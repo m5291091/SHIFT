@@ -1,0 +1,20 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<form method="post">
+    {% csrf_token %}
+    <p>以下の{{ queryset.count }}人の従業員の最低公休日数を一括で変更します:</p>
+    <ul>
+    {% for obj in queryset %}
+        <li>{{ obj.name }}</li>
+    {% endfor %}
+    </ul>
+
+    {{ form.as_p }}
+
+    <input type="hidden" name="selected_ids" value="{% for obj in queryset %}{{ obj.pk }},{% endfor %}">
+
+    <input type="submit" name="apply" value="適用">
+</form>
+{% endblock %}

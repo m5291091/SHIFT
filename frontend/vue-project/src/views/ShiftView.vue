@@ -13,6 +13,8 @@ const leaveRequests = ref([])
 const availabilities = ref([])
 const shiftPatterns = ref([])
 const infeasibleDays = ref([])
+const earnings = ref({})
+const otherAssignments = ref([])
 
 onMounted(async () => {
   try {
@@ -32,12 +34,10 @@ const formatDate = (dateObj) => {
 
 const dateHeaders = computed(() => {
   if (!startDate.value || !endDate.value) return []
-  
   const dates = []
   let currentDate = new Date(startDate.value + 'T00:00:00')
   const lastDate = new Date(endDate.value + 'T00:00:00')
   const weekdays = ['日', '月', '火', '水', '木', '金', '土']
-
   while (currentDate <= lastDate) {
     dates.push({
       date: formatDate(currentDate),
@@ -52,14 +52,31 @@ const memberStats = computed(() => {
   const stats = {}
   const totalDays = dateHeaders.value.length
   if (totalDays === 0) return stats;
-
   members.value.forEach(member => {
     const workDays = assignments.value.filter(a => a.member_id === member.id).length
+    const otherWorkDays = otherAssignments.value.filter(a => a.member === member.id).length
     stats[member.id] = {
-      holidays: totalDays - workDays,
+      holidays: totalDays - workDays - otherWorkDays,
     }
   })
   return stats
+})
+
+// 【追加】日ごと・シフトパターンごとの人数を集計する
+const dailyHeadcounts = computed(() => {
+  const counts = {}
+  dateHeaders.value.forEach(header => {
+    counts[header.date] = {}
+    shiftPatterns.value.forEach(p => {
+      counts[header.date][p.pattern_name] = 0
+    })
+  })
+  assignments.value.forEach(a => {
+    if (counts[a.shift_date] && counts[a.shift_date][a.shift_pattern_name] !== undefined) {
+      counts[a.shift_date][a.shift_pattern_name]++
+    }
+  })
+  return counts
 })
 
 const scheduleGrid = computed(() => {
@@ -68,32 +85,60 @@ const scheduleGrid = computed(() => {
     grid[member.id] = {}
     dateHeaders.value.forEach(header => {
       if (infeasibleDays.value.includes(header.date)) {
-        grid[member.id][header.date] = { text: '人員不足', type: 'infeasible' }
+        grid[member.id][header.date] = { text: '人員不足', type: 'infeasible', patternId: null }
       } else {
-        grid[member.id][header.date] = { text: '/', type: 'empty' }
+        grid[member.id][header.date] = { text: '/', type: 'empty', patternId: null }
         const dayOfWeek = new Date(header.date + 'T00:00:00').getDay()
         const dayOfWeekForDjango = (dayOfWeek === 0) ? 6 : dayOfWeek - 1;
         const isAvailable = availabilities.value.some(avail => 
           avail.member === member.id && avail.day_of_week === dayOfWeekForDjango
         )
         if(isAvailable) {
-          grid[member.id][header.date] = { text: '-', type: 'available' }
+          grid[member.id][header.date] = { text: '-', type: 'available', patternId: null }
         }
       }
     })
   })
   leaveRequests.value.forEach(req => {
     if (grid[req.member_id]) {
-      grid[req.member_id][req.leave_date] = { text: '✖︎', type: 'leave' }
+      grid[req.member_id][req.leave_date] = { text: '✖︎', type: 'leave', patternId: null }
     }
   })
   assignments.value.forEach(a => {
     if (grid[a.member_id]) {
-      grid[a.member_id][a.shift_date] = { text: a.shift_pattern_name, type: 'assigned' }
+      grid[a.member_id][a.shift_date] = { text: a.shift_pattern_name, type: 'assigned', patternId: a.shift_pattern }
+    }
+  })
+  otherAssignments.value.forEach(a => {
+    if (grid[a.member]) {
+      grid[a.member][a.shift_date] = { text: a.activity_name, type: 'other', patternId: null }
     }
   })
   return grid
 })
+
+const handleShiftChange = async (memberId, date, event) => {
+  const selectedValue = event.target.value
+  if (selectedValue === 'other') {
+    const activityName = prompt('業務内容を入力してください（例：研修）')
+    if (activityName) {
+      await axios.post('http://127.0.0.1:8000/api/v1/other-assignment/', {
+        member_id: memberId,
+        shift_date: date,
+        activity_name: activityName,
+      })
+      await fetchScheduleData()
+    }
+  } else {
+    const patternId = selectedValue === 'delete' ? null : selectedValue
+    await axios.post('http://127.0.0.1:8000/api/v1/manual-assignment/', {
+      member_id: memberId,
+      shift_date: date,
+      pattern_id: patternId,
+    })
+    await fetchScheduleData()
+  }
+}
 
 const generateShifts = async () => {
   if (!startDate.value || !endDate.value) {
@@ -111,16 +156,16 @@ const generateShifts = async () => {
     })
     
     infeasibleDays.value = response.data.infeasible_days || []
+    assignments.value = response.data.assignments || []
+    
     if (infeasibleDays.value.length > 0) {
       message.value = '人員不足のため一部の日付が生成できませんでした。'
     } else if (response.data.success) {
       message.value = '生成が完了しました。'
     } else {
-      message.value = 'シフト生成に失敗しました。ルールを見直してください。'
+      message.value = 'シフト生成に失敗しました。ルールが厳しすぎる可能性があります。'
     }
-    
-    await fetchScheduleData()
-
+    await fetchScheduleData(false)
   } catch (error) {
     console.error('リクエストエラー:', error)
     message.value = 'サーバーとの通信中にエラーが発生しました。'
@@ -129,15 +174,19 @@ const generateShifts = async () => {
   }
 }
 
-const fetchScheduleData = async () => {
+const fetchScheduleData = async (shouldFetchAssignments = true) => {
   try {
     const response = await axios.get('http://127.0.0.1:8000/api/v1/schedule-data/', {
       params: { start_date: startDate.value, end_date: endDate.value },
     })
-    assignments.value = response.data.assignments
+    if (shouldFetchAssignments) {
+        assignments.value = response.data.assignments
+    }
     leaveRequests.value = response.data.leave_requests
     members.value = response.data.members
     availabilities.value = response.data.availabilities
+    earnings.value = response.data.earnings
+    otherAssignments.value = response.data.other_assignments
   } catch (error) {
     console.error('スケジュールデータの読み込みに失敗しました:', error)
   }
@@ -165,7 +214,7 @@ const fetchScheduleData = async () => {
       <table v-if="members.length > 0">
         <thead>
           <tr>
-            <th class="sticky-col">従業員 (期間内休日)</th>
+            <th class="sticky-col">従業員 (休日 / 給与)</th>
             <th v-for="header in dateHeaders" :key="header.date">
               <div>{{ header.date.slice(5).replace('-', '/') }}</div>
               <div>({{ header.weekday }})</div>
@@ -176,24 +225,37 @@ const fetchScheduleData = async () => {
           <tr v-for="member in members" :key="member.id">
             <td class="sticky-col">
               {{ member.name }}
-              <span v-if="memberStats[member.id]" style="font-size: 0.8em; color: #555;">
-                (休{{ memberStats[member.id].holidays }})
-              </span>
+              <div class="stats">
+                <span v-if="memberStats[member.id]">(休{{ memberStats[member.id].holidays }})</span>
+                <span v-if="earnings[member.id]">(¥{{ earnings[member.id].toLocaleString() }})</span>
+              </div>
             </td>
             <td v-for="header in dateHeaders" :key="header.date" 
                 :class="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].type : 'empty'">
-              <select v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'infeasible'" v-model="scheduleGrid[member.id][header.date].text">
-                <option :value="scheduleGrid[member.id][header.date].text">{{ scheduleGrid[member.id][header.date].text }}</option>
-                <option v-if="scheduleGrid[member.id][header.date].type === 'assigned' || scheduleGrid[member.id][header.date].type === 'available'" value="-">（削除）</option>
-                <option v-for="pattern in shiftPatterns" :key="pattern.id" :value="pattern.pattern_name">
+              <select 
+                v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'infeasible' && scheduleGrid[member.id][header.date].type !== 'leave'" 
+                @change="handleShiftChange(member.id, header.date, $event)"
+              >
+                <option :value="scheduleGrid[member.id][header.date].patternId" selected disabled>{{ scheduleGrid[member.id][header.date].text }}</option>
+                <option v-if="scheduleGrid[member.id][header.date].type !== 'empty' && scheduleGrid[member.id][header.date].type !== 'available'" value="delete">（削除）</option>
+                <option v-for="pattern in shiftPatterns" :key="pattern.id" :value="pattern.id">
                   {{ pattern.pattern_name }}
                 </option>
+                <option value="other">その他...</option>
               </select>
               <span v-else-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date]">{{ scheduleGrid[member.id][header.date].text }}</span>
             </td>
           </tr>
         </tbody>
-      </table>
+        <tfoot v-if="shiftPatterns.length > 0">
+          <tr v-for="pattern in shiftPatterns" :key="pattern.id">
+            <td class="sticky-col summary-header">{{ pattern.pattern_name }} 人数</td>
+            <td v-for="header in dateHeaders" :key="header.date">
+              {{ dailyHeadcounts[header.date] ? dailyHeadcounts[header.date][pattern.pattern_name] : 0 }}
+            </td>
+          </tr>
+        </tfoot>
+        </table>
     </div>
   </div>
 </template>
@@ -240,10 +302,25 @@ td select {
   z-index: 1;
   min-width: 150px;
 }
-td.leave { background-color: #fce4e4; color: #9b2c2c; }
-td.leave select { font-weight: bold; }
+td.leave { background-color: #fce4e4; color: #9b2c2c; font-weight: bold; }
+td.other { background-color: #e2e8f0; }
 td.assigned { background-color: #e6fffa; }
 td.available { background-color: #f7fafc; }
 td.empty { background-color: #edf2f7; color: #a0aec0; }
 td.infeasible { background-color: #fff5e6; color: #b7791f; font-weight: bold; font-size: 0.9em; }
+.stats {
+  font-size: 0.8em;
+  color: #555;
+  font-weight: normal;
+}
+tfoot {
+  font-weight: bold;
+  background-color: #f0f8ff;
+}
+.summary-header {
+  background-color: #e6f4ff;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+}
 </style>
