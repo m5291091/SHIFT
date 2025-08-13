@@ -1,0 +1,41 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block content %}
+<h1>希望休の一括登録</h1>
+
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+
+    <div id="calendar-container"></div>
+
+    <input type="submit" value="保存" class="default" style="margin-top: 1rem;">
+</form>
+{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const leaveDatesInput = document.getElementById('id_leave_dates');
+
+    // カレンダーを初期化します
+    flatpickr("#calendar-container", {
+        mode: "multiple",         // 複数日付の選択を許可
+        dateFormat: "Y-m-d",      // 日付のフォーマット
+        inline: true,             // カレンダーを常に表示
+        onChange: function(selectedDates) {
+                leaveDatesInput.value = selectedDates.map(date => {
+                    const y = date.getFullYear();
+                    const m = String(date.getMonth() + 1).padStart(2, '0'); // 月は0から始まるため+1
+                    const d = String(date.getDate()).padStart(2, '0');
+                    return `${y}-${m}-${d}`;
+                }).join(',');
+            }
+    });
+});
+</script>
+{% endblock %}
