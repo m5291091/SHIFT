@@ -60,11 +60,27 @@ const memberStats = computed(() => {
   const stats = {}
   const totalDays = dateHeaders.value.length
   if (totalDays === 0) return stats;
+
   members.value.forEach(member => {
-    const workDays = assignments.value.filter(a => a.member_id === member.id).length
-    const otherWorkDays = otherAssignments.value.filter(a => a.member === member.id).length
+    const workDates = new Set();
+    assignments.value.forEach(a => {
+      if (a.member_id === member.id) {
+        workDates.add(a.shift_date);
+      }
+    });
+    otherAssignments.value.forEach(a => {
+      if (a.member === member.id) {
+        workDates.add(a.shift_date);
+      }
+    });
+    fixedAssignments.value.forEach(a => {
+      if (a.member_id === member.id) {
+        workDates.add(a.shift_date);
+      }
+    });
+    
     stats[member.id] = {
-      holidays: totalDays - workDays - otherWorkDays,
+      holidays: totalDays - workDates.size,
     }
   })
   return stats
@@ -78,17 +94,32 @@ const dailyHeadcounts = computed(() => {
       counts[header.date][p.pattern_name] = 0
     })
   })
+
+  const uniqueAssignments = new Map();
+
+  // assignments をまず Map に登録
   assignments.value.forEach(a => {
-    if (counts[a.shift_date] && counts[a.shift_date][a.shift_pattern_name] !== undefined) {
-      counts[a.shift_date][a.shift_pattern_name]++
+    if (a && a.shift_date && a.member_id) {
+      const key = `${a.shift_date}-${a.member_id}`;
+      uniqueAssignments.set(key, a);
     }
-  })
-  // 固定シフトも人数カウントに含める
+  });
+
+  // fixedAssignments を登録（重複していれば上書きされるが、内容は同じはず）
   fixedAssignments.value.forEach(a => {
-    if (counts[a.shift_date] && counts[a.shift_date][a.shift_pattern_name] !== undefined) {
-      counts[a.shift_date][a.shift_pattern_name]++
+    if (a && a.shift_date && a.member_id) {
+      const key = `${a.shift_date}-${a.member_id}`;
+      uniqueAssignments.set(key, a);
     }
-  })
+  });
+
+  // Map の値（ユニークなアサインメント）をループしてカウント
+  uniqueAssignments.forEach(a => {
+    if (a && a.shift_pattern_name && counts[a.shift_date] && counts[a.shift_date][a.shift_pattern_name] !== undefined) {
+      counts[a.shift_date][a.shift_pattern_name]++;
+    }
+  });
+
   return counts
 })
 

@@ -1,12 +1,16 @@
 from django.contrib import admin
 from django.urls import path, reverse
 from django.shortcuts import render, redirect
-from .forms import BulkLeaveRequestForm, BulkUpdateMinDaysOffForm, BulkAssignmentForm, BulkFixedAssignmentForm
+from .forms import BulkLeaveRequestForm, BulkUpdateMinDaysOffForm, BulkAssignmentForm, BulkFixedAssignmentForm, BulkOtherAssignmentForm
 from .models import (
     Member, Skill, DayGroup, MemberSkill, ShiftPattern, MemberAvailability,
     LeaveRequest, TimeSlotRequirement, RelationshipGroup, GroupMember, Assignment, OtherAssignment,
-    FixedAssignment
+    FixedAssignment, SpecificDateRequirement, SpecificTimeSlotRequirement, MemberShiftPatternPreference
 )
+
+class MemberShiftPatternPreferenceInline(admin.TabularInline):
+    model = MemberShiftPatternPreference
+    extra = 1
 
 class MemberAdmin(admin.ModelAdmin):
     list_display = (
@@ -19,12 +23,13 @@ class MemberAdmin(admin.ModelAdmin):
         ('給与形態', {'fields': ('employee_type', 'hourly_wage', 'monthly_salary')}),
         ('給与目標', {'fields': ('min_monthly_salary', 'max_monthly_salary', 'max_annual_salary', 'current_annual_salary', 'salary_year_start_month')}),
         ('労働時間・休日制約', {'fields': ('max_hours_per_day', 'min_days_off_per_week', 'min_monthly_days_off', 'enforce_exact_holidays')}),
-        ('担当シフト・曜日', {'fields': ('assignable_patterns', 'allowed_day_groups')}),
+        ('勤務可能な曜日', {'fields': ('allowed_day_groups',)}),
     )
     list_filter = ('employee_type',)
     search_fields = ('name',)
-    filter_horizontal = ('assignable_patterns', 'allowed_day_groups')
+    filter_horizontal = ('allowed_day_groups',)
     actions = ['bulk_update_min_days_off_action']
+    inlines = [MemberShiftPatternPreferenceInline]
 
     def get_urls(self):
         urls = super().get_urls()
@@ -149,16 +154,71 @@ class FixedAssignmentAdmin(admin.ModelAdmin):
         extra_context['bulk_add_url'] = reverse('admin:core_fixedassignment_bulk_add')
         return super().changelist_view(request, extra_context)
 
+@admin.register(OtherAssignment)
 class OtherAssignmentAdmin(admin.ModelAdmin):
     list_display = ('member', 'shift_date', 'activity_name')
     list_filter = ('member', 'activity_name')
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path('bulk-add/', self.admin_site.admin_view(self.bulk_add_view), name='core_otherassignment_bulk_add'),
+        ]
+        return custom_urls + urls
+
+    def bulk_add_view(self, request):
+        if request.method == 'POST':
+            form = BulkOtherAssignmentForm(request.POST)
+            if form.is_valid():
+                member = form.cleaned_data['member']
+                activity_name = form.cleaned_data['activity_name']
+                dates_str = form.cleaned_data['dates']
+                dates = dates_str.split(',')
+                
+                count = 0
+                for date_str in dates:
+                    if not date_str: continue
+                    OtherAssignment.objects.update_or_create(
+                        member=member, 
+                        shift_date=date_str,
+                        defaults={'activity_name': activity_name}
+                    )
+                    count += 1
+                
+                self.message_user(request, f"{count}件のその他の割り当てを登録・更新しました。")
+                return redirect('admin:core_otherassignment_changelist')
+        else:
+            form = BulkOtherAssignmentForm()
+
+        context = dict(
+           self.admin_site.each_context(request),
+           form=form,
+           title="その他の割り当てを一括登録"
+        )
+        return render(request, 'admin/core/otherassignment/bulk_add_form.html', context)
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context['bulk_add_url'] = reverse('admin:core_otherassignment_bulk_add')
+        return super().changelist_view(request, extra_context)
+
+@admin.register(SpecificDateRequirement)
+class SpecificDateRequirementAdmin(admin.ModelAdmin):
+    list_display = ('date', 'shift_pattern', 'min_headcount', 'max_headcount')
+    list_filter = ('date', 'shift_pattern')
+    ordering = ('-date',)
+
+@admin.register(SpecificTimeSlotRequirement)
+class SpecificTimeSlotRequirementAdmin(admin.ModelAdmin):
+    list_display = ('date', 'start_time', 'end_time', 'min_headcount', 'max_headcount')
+    list_filter = ('date',)
+    ordering = ('-date', 'start_time')
 
 # --- モデルの登録 ---
 admin.site.register(Member, MemberAdmin)
 admin.site.register(ShiftPattern, ShiftPatternAdmin)
 admin.site.register(LeaveRequest, LeaveRequestAdmin)
 admin.site.register(TimeSlotRequirement, TimeSlotRequirementAdmin)
-admin.site.register(OtherAssignment, OtherAssignmentAdmin)
 admin.site.register(Assignment, AssignmentAdmin)
 
 admin.site.register(Skill)

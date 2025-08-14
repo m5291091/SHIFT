@@ -1,8 +1,13 @@
 from ortools.sat.python import cp_model
-from .models import Member, ShiftPattern, LeaveRequest, TimeSlotRequirement, Assignment, DayGroup, RelationshipGroup, OtherAssignment, FixedAssignment
+from .models import (
+    Member, ShiftPattern, LeaveRequest, TimeSlotRequirement, Assignment, DayGroup, 
+    RelationshipGroup, OtherAssignment, FixedAssignment, SpecificDateRequirement, 
+    SpecificTimeSlotRequirement, MemberShiftPatternPreference
+)
 from .serializers import AssignmentSerializer
 from datetime import date, timedelta, datetime, time
 from collections import defaultdict
+import itertools
 
 def generate_schedule(start_date_str, end_date_str):
     # --- 1. データ準備 ---
@@ -10,27 +15,36 @@ def generate_schedule(start_date_str, end_date_str):
     end_date = date.fromisoformat(end_date_str)
     days = [start_date + timedelta(days=i) for i in range((end_date - start_date).days + 1)]
 
-    all_members = Member.objects.all().prefetch_related('assignable_patterns', 'allowed_day_groups')
+    all_members = Member.objects.all().prefetch_related('shift_preferences', 'allowed_day_groups')
     all_patterns = ShiftPattern.objects.all()
     fixed_assignments = FixedAssignment.objects.filter(shift_date__range=[start_date, end_date]).select_related('shift_pattern', 'member')
+    other_assignments = OtherAssignment.objects.filter(shift_date__range=[start_date, end_date])
+    specific_date_reqs = SpecificDateRequirement.objects.filter(date__range=[start_date, end_date])
+    specific_timeslot_reqs = SpecificTimeSlotRequirement.objects.filter(date__range=[start_date, end_date])
+    prefs = MemberShiftPatternPreference.objects.all()
+    priority_map = {(p.member_id, p.shift_pattern_id): p.priority for p in prefs}
     time_interval = 30
 
-    # 固定シフトがカバーするスロットと、(member, day) のセットを事前に計算
+    # 特定日の設定がある日付をセットとして保持
+    dates_with_specific_reqs = {req.date for req in specific_date_reqs} | {req.date for req in specific_timeslot_reqs}
+
+    # 固定シフト・その他シフトがある従業員と日付のセットを事前に計算
     fixed_slot_coverage = defaultdict(int)
-    fixed_member_days = set()
+    pre_assigned_days = set()
     for fa in fixed_assignments:
-        fixed_member_days.add((fa.member.id, fa.shift_date))
+        pre_assigned_days.add((fa.member.id, fa.shift_date))
         p_start, p_end = fa.shift_pattern.start_time, fa.shift_pattern.end_time
         current_time = datetime.combine(fa.shift_date, p_start)
         end_time_dt = datetime.combine(fa.shift_date, p_end)
         if p_end < p_start:
             end_time_dt += timedelta(days=1)
-        
         num_intervals = int(((end_time_dt - current_time).total_seconds() / 60) / time_interval)
         for i in range(num_intervals):
             slot_start_dt = current_time + timedelta(minutes=i * time_interval)
             if start_date <= slot_start_dt.date() <= end_date:
                 fixed_slot_coverage[(slot_start_dt.date(), slot_start_dt.time())] += 1
+    for oa in other_assignments:
+        pre_assigned_days.add((oa.member.id, oa.shift_date))
 
     shift_work_minutes = {}
     for p in all_patterns:
@@ -58,6 +72,8 @@ def generate_schedule(start_date_str, end_date_str):
     HEADCOUNT_PENALTY_COST = 100000
     DIFFICULTY_BONUS_WEIGHT = 10000 
     WORK_DAY_DEVIATION_PENALTY = 7000
+    PAIRING_BONUS = 5000
+    SHIFT_PREFERENCE_BONUS = 100
 
     leave_requests_map = defaultdict(set)
     for req in LeaveRequest.objects.filter(status='approved', leave_date__range=[start_date, end_date]):
@@ -65,7 +81,7 @@ def generate_schedule(start_date_str, end_date_str):
     
     for m in all_members:
         num_possible_shifts = 0
-        allowed_patterns = {p.id for p in m.assignable_patterns.all()}
+        allowed_patterns = {p.id for p in m.shift_preferences.all()}
         allowed_groups = m.allowed_day_groups.all()
         allowed_weekdays = set()
         if allowed_groups.exists():
@@ -88,9 +104,24 @@ def generate_schedule(start_date_str, end_date_str):
         priority_reward = (10000 // (num_possible_shifts + 1)) * (100 - m.priority_score)
         for d in days:
             for p in all_patterns:
-                difficulty_bonus = day_difficulty.get(d, 0) * DIFFICULTY_BONUS_WEIGHT
-                score_term = priority_reward + difficulty_bonus
+                score_term = priority_reward + day_difficulty.get(d, 0) * DIFFICULTY_BONUS_WEIGHT
+                pattern_priority = priority_map.get((m.id, p.id), 100)
+                priority_bonus = (100 - pattern_priority) * SHIFT_PREFERENCE_BONUS
+                score_term += priority_bonus
                 total_priority_score.append(shifts[(m.id, d, p.id)] * score_term)
+
+    # ペアリングのボーナス項
+    pairing_groups = RelationshipGroup.objects.filter(rule_type='pairing').prefetch_related('groupmember_set__member')
+    for group in pairing_groups:
+        members_in_group = [gm.member for gm in group.groupmember_set.all()]
+        for m1, m2 in itertools.combinations(members_in_group, 2):
+            for d in days:
+                for p in all_patterns:
+                    is_paired = model.NewBoolVar(f'paired_m{m1.id}_m{m2.id}_d{d}_p{p.id}')
+                    model.AddBoolAnd([shifts[(m1.id, d, p.id)], shifts[(m2.id, d, p.id)]]).OnlyEnforceIf(is_paired)
+                    model.AddImplication(is_paired, shifts[(m1.id, d, p.id)])
+                    model.AddImplication(is_paired, shifts[(m2.id, d, p.id)])
+                    total_priority_score.append(is_paired * PAIRING_BONUS)
 
     work_days_per_member = []
     for m in all_members:
@@ -113,18 +144,35 @@ def generate_schedule(start_date_str, end_date_str):
             total_penalty_terms.append(abs_deviation * WORK_DAY_DEVIATION_PENALTY)
 
     # --- 4. 制約の追加 ---
-    # 固定シフトの制約
+    # 固定シフト・その他シフトの制約
     for fa in fixed_assignments:
         model.Add(shifts[(fa.member.id, fa.shift_date, fa.shift_pattern.id)] == 1)
+    for oa in other_assignments:
+        for p in all_patterns:
+            if (oa.member.id, oa.shift_date, p.id) in shifts:
+                model.Add(shifts[(oa.member.id, oa.shift_date, p.id)] == 0)
+
+    # 特定日・シフトパターンごとの必要人数制約
+    for req in specific_date_reqs:
+        workers_in_pattern = sum(shifts[(m.id, req.date, req.shift_pattern.id)] for m in all_members)
+        model.Add(workers_in_pattern >= req.min_headcount)
+        if req.max_headcount is not None:
+            model.Add(workers_in_pattern <= req.max_headcount)
+
+    # 担当可能でないシフトには割り当てない制約
+    for m in all_members:
+        assigned_pattern_ids = {p.id for p in m.shift_preferences.all()}
+        if assigned_pattern_ids:
+            for p in all_patterns:
+                if p.id not in assigned_pattern_ids:
+                    for d in days:
+                        model.Add(shifts[(m.id, d, p.id)] == 0)
 
     slot_coverage = defaultdict(list)
     for m in all_members:
         for d in days:
-            # 固定シフトが割り当てられている日は、その従業員の他のシフト変数は0になるので、
-            # slot_coverage の計算からは除外する
-            if (m.id, d) in fixed_member_days:
+            if (m.id, d) in pre_assigned_days:
                 continue
-            
             for p in all_patterns:
                 p_start, p_end = p.start_time, p.end_time
                 current_time = datetime.combine(d, p_start)
@@ -144,38 +192,45 @@ def generate_schedule(start_date_str, end_date_str):
             if incompatible_shifts_in_slot:
                 model.Add(sum(incompatible_shifts_in_slot) <= 1)
 
+    # 必要人数の制約 (曜日グループ or 特定日)
     for d in days:
-        day_name_field = f"is_{d.strftime('%A').lower()}"
-        applicable_groups = DayGroup.objects.filter(**{day_name_field: True})
-        if not applicable_groups.exists(): continue
-        requirements = TimeSlotRequirement.objects.filter(day_group__in=applicable_groups)
-        for t in range(0, 24 * 60, time_interval):
-            current_slot_start = time(t // 60, t % 60)
-            rule_for_slot = next((req for req in requirements if req.start_time <= current_slot_start and current_slot_start < req.end_time), None)
-            if rule_for_slot:
-                variable_workers_in_slot = [s for s, m_id in slot_coverage.get((d, current_slot_start), [])]
-                fixed_workers_in_slot = fixed_slot_coverage.get((d, current_slot_start), 0)
-                
-                total_workers_expr = sum(variable_workers_in_slot) + fixed_workers_in_slot
-
-                shortfall = model.NewIntVar(0, rule_for_slot.min_headcount, f'headcount_shortfall_d{d}_t{t}')
-                model.Add(total_workers_expr + shortfall >= rule_for_slot.min_headcount)
-                total_penalty_terms.append(shortfall * HEADCOUNT_PENALTY_COST)
-                if rule_for_slot.max_headcount is not None:
-                    model.Add(total_workers_expr <= rule_for_slot.max_headcount)
+        if d in dates_with_specific_reqs:
+            day_specific_reqs = [req for req in specific_timeslot_reqs if req.date == d]
+            if day_specific_reqs:
+                for t in range(0, 24 * 60, time_interval):
+                    current_slot_start = time(t // 60, t % 60)
+                    rule_for_slot = next((req for req in day_specific_reqs if req.start_time <= current_slot_start and current_slot_start < req.end_time), None)
+                    if rule_for_slot:
+                        variable_workers_in_slot = [s for s, m_id in slot_coverage.get((d, current_slot_start), [])]
+                        fixed_workers_in_slot = fixed_slot_coverage.get((d, current_slot_start), 0)
+                        total_workers_expr = sum(variable_workers_in_slot) + fixed_workers_in_slot
+                        shortfall = model.NewIntVar(0, rule_for_slot.min_headcount, f'headcount_shortfall_d{d}_t{t}')
+                        model.Add(total_workers_expr + shortfall >= rule_for_slot.min_headcount)
+                        total_penalty_terms.append(shortfall * HEADCOUNT_PENALTY_COST)
+                        if rule_for_slot.max_headcount is not None:
+                            model.Add(total_workers_expr <= rule_for_slot.max_headcount)
+        else:
+            day_name_field = f"is_{d.strftime('%A').lower()}"
+            applicable_groups = DayGroup.objects.filter(**{day_name_field: True})
+            if not applicable_groups.exists(): continue
+            requirements = TimeSlotRequirement.objects.filter(day_group__in=applicable_groups)
+            for t in range(0, 24 * 60, time_interval):
+                current_slot_start = time(t // 60, t % 60)
+                rule_for_slot = next((req for req in requirements if req.start_time <= current_slot_start and current_slot_start < req.end_time), None)
+                if rule_for_slot:
+                    variable_workers_in_slot = [s for s, m_id in slot_coverage.get((d, current_slot_start), [])]
+                    fixed_workers_in_slot = fixed_slot_coverage.get((d, current_slot_start), 0)
+                    total_workers_expr = sum(variable_workers_in_slot) + fixed_workers_in_slot
+                    shortfall = model.NewIntVar(0, rule_for_slot.min_headcount, f'headcount_shortfall_d{d}_t{t}')
+                    model.Add(total_workers_expr + shortfall >= rule_for_slot.min_headcount)
+                    total_penalty_terms.append(shortfall * HEADCOUNT_PENALTY_COST)
+                    if rule_for_slot.max_headcount is not None:
+                        model.Add(total_workers_expr <= rule_for_slot.max_headcount)
     
     for req in LeaveRequest.objects.filter(status='approved', leave_date__range=[start_date, end_date]):
         for p in all_patterns:
             if (req.member.id, req.leave_date, p.id) in shifts:
                 model.Add(shifts[(req.member.id, req.leave_date, p.id)] == 0)
-    
-    for m in all_members:
-        assigned_pattern_ids = {p.id for p in m.assignable_patterns.all()}
-        if assigned_pattern_ids:
-            for p in all_patterns:
-                if p.id not in assigned_pattern_ids:
-                    for d in days:
-                        model.Add(shifts[(m.id, d, p.id)] == 0)
     
     MIN_REST_MINUTES = 8 * 60
     for m in all_members:

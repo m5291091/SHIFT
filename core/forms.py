@@ -48,3 +48,17 @@ class BulkFixedAssignmentForm(forms.Form):
         label="対象日（カレンダーで選択）",
         widget=forms.HiddenInput()
     )
+
+class BulkOtherAssignmentForm(forms.Form):
+    member = forms.ModelChoiceField(
+        queryset=Member.objects.all(),
+        label="従業員"
+    )
+    activity_name = forms.CharField(
+        label="業務内容",
+        max_length=100
+    )
+    dates = forms.CharField(
+        label="対象日（カレンダーで選択）",
+        widget=forms.HiddenInput()
+    )

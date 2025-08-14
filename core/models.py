@@ -1,5 +1,19 @@
 from django.db import models
 
+class MemberShiftPatternPreference(models.Model):
+    member = models.ForeignKey('Member', on_delete=models.CASCADE, verbose_name="従業員")
+    shift_pattern = models.ForeignKey('ShiftPattern', on_delete=models.CASCADE, verbose_name="シフトパターン")
+    priority = models.IntegerField("優先順位", default=10, help_text="数値が小さいほど優先されます")
+
+    class Meta:
+        verbose_name = "シフトパターン優先度"
+        verbose_name_plural = "シフトパターン優先度"
+        unique_together = ('member', 'shift_pattern')
+        ordering = ['member', 'priority']
+
+    def __str__(self):
+        return f"{self.member.name} - {self.shift_pattern.pattern_name} (優先度: {self.priority})"
+
 class Member(models.Model):
     EMPLOYEE_TYPE_CHOICES = [
         ('hourly', '時給制'),
@@ -28,11 +42,12 @@ class Member(models.Model):
     created_at = models.DateTimeField("登録日時", auto_now_add=True)
     updated_at = models.DateTimeField("更新日時", auto_now=True)
 
-    assignable_patterns = models.ManyToManyField(
+    shift_preferences = models.ManyToManyField(
         'ShiftPattern',
-        verbose_name="担当可能なシフト",
+        verbose_name="シフトパターンの優先度",
+        through='MemberShiftPatternPreference',
         blank=True,
-        help_text="空の場合、全てのシフトパターンが担当可能と見なされます"
+        help_text="ここで担当可能なシフトと、その優先順位を設定します"
     )
     allowed_day_groups = models.ManyToManyField(
         'DayGroup',
@@ -206,3 +221,32 @@ class FixedAssignment(models.Model):
 
     def __str__(self):
         return f"{self.shift_date} {self.member.name} ({self.shift_pattern.pattern_name})"
+
+class SpecificDateRequirement(models.Model):
+    date = models.DateField("日付")
+    shift_pattern = models.ForeignKey(ShiftPattern, on_delete=models.CASCADE, verbose_name="シフトパターン")
+    min_headcount = models.IntegerField("最低必要人数")
+    max_headcount = models.IntegerField("最大必要人数", null=True, blank=True, help_text="空欄の場合は上限なし")
+
+    class Meta:
+        verbose_name = "特定日別シフト必要人数"
+        verbose_name_plural = "特定日別シフト必要人数"
+        unique_together = ('date', 'shift_pattern')
+
+    def __str__(self):
+        return f"{self.date} ({self.shift_pattern.pattern_name}): {self.min_headcount}人"
+
+class SpecificTimeSlotRequirement(models.Model):
+    date = models.DateField("日付")
+    start_time = models.TimeField("開始時刻")
+    end_time = models.TimeField("終了時刻")
+    min_headcount = models.IntegerField("最低必要人数")
+    max_headcount = models.IntegerField("最大必要人数", null=True, blank=True, help_text="空欄の場合は上限なし")
+
+    class Meta:
+        verbose_name = "特定日別時間帯必要人数"
+        verbose_name_plural = "特定日別時間帯必要人数"
+        ordering = ['date', 'start_time']
+
+    def __str__(self):
+        return f"{self.date} ({self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')}): {self.min_headcount}人"
