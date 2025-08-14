@@ -2,17 +2,13 @@
 {% load i18n static %}
 
 {% block content %}
-<h1>休日・固定業務の一括登録</h1>
-<p>従業員を選択し、カレンダーで希望休の日付をクリックしてください。<br>
-   固定の業務がある場合は、「業務内容」を入力してから該当日をクリックしてください。</p>
+<h1>希望休の一括登録</h1>
 
 <form method="post">
     {% csrf_token %}
     {{ form.as_p }}
-
-    <div style="display: flex; gap: 20px;">
-        <div id="calendar-container"></div>
-    </div>
+    
+    <div id="calendar-container"></div>
 
     <input type="submit" value="保存" class="default" style="margin-top: 1rem;">
 </form>
@@ -25,29 +21,21 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const leaveDatesInput = document.getElementById('id_leave_dates');
-    const otherDateInput = document.getElementById('id_other_assignment_date');
-    const activityNameInput = document.getElementById('id_activity_name');
-
+    
     flatpickr("#calendar-container", {
         mode: "multiple",
         dateFormat: "Y-m-d",
         inline: true,
-        onDayCreate: function(dObj, dStr, fp, dayElem){
-            // ここで既存の予定をカレンダーに表示することも可能（将来の拡張）
-        },
-        onClick: function(selectedDates, dateStr, instance) {
-            const activityName = activityNameInput.value;
-            if (activityName) {
-                // 業務内容が入力されていれば「その他」として扱う
-                otherDateInput.value = dateStr;
-                leaveDatesInput.value = ''; // 希望休の選択をクリア
-                alert(dateStr + ' に「' + activityName + '」を登録します。');
-            } else {
-                // 業務内容が空なら「希望休」として扱う
-                leaveDatesInput.value = dateStr;
-                otherDateInput.value = ''; // その他をクリア
-            }
+        // 【ここから修正】
+        onChange: function(selectedDates) {
+            leaveDatesInput.value = selectedDates.map(date => {
+                const y = date.getFullYear();
+                const m = String(date.getMonth() + 1).padStart(2, '0'); // 月は0から始まるため+1
+                const d = String(date.getDate()).padStart(2, '0');
+                return `${y}-${m}-${d}`;
+            }).join(',');
         }
+        // 【ここまで修正】
     });
 });
 </script>
