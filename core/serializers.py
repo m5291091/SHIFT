@@ -1,6 +1,5 @@
 from rest_framework import serializers
-from .models import Member, Assignment, ShiftPattern, MemberAvailability, OtherAssignment
-
+from .models import Member, Assignment, ShiftPattern, MemberAvailability, OtherAssignment, FixedAssignment
 
 
 class MemberSerializer(serializers.ModelSerializer):
@@ -24,6 +23,15 @@ class AssignmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Assignment
         fields = ['id', 'shift_date', 'member_name', 'shift_pattern_name', 'member_id', 'shift_pattern'] # fieldsにも追加
+
+class FixedAssignmentSerializer(serializers.ModelSerializer):
+    member_name = serializers.CharField(source='member.name', read_only=True)
+    shift_pattern_name = serializers.CharField(source='shift_pattern.pattern_name', read_only=True)
+    member_id = serializers.IntegerField(source='member.id', read_only=True)
+
+    class Meta:
+        model = FixedAssignment
+        fields = ['id', 'shift_date', 'member_name', 'shift_pattern_name', 'member_id', 'shift_pattern']
 
 class MemberAvailabilitySerializer(serializers.ModelSerializer):
     class Meta:

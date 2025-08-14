@@ -8,6 +8,7 @@ const isLoading = ref(false)
 const message = ref('')
 const members = ref([])
 const assignments = ref([])
+const fixedAssignments = ref([]) // 追加
 const leaveRequests = ref([])
 const availabilities = ref([])
 const shiftPatterns = ref([])
@@ -82,6 +83,12 @@ const dailyHeadcounts = computed(() => {
       counts[a.shift_date][a.shift_pattern_name]++
     }
   })
+  // 固定シフトも人数カウントに含める
+  fixedAssignments.value.forEach(a => {
+    if (counts[a.shift_date] && counts[a.shift_date][a.shift_pattern_name] !== undefined) {
+      counts[a.shift_date][a.shift_pattern_name]++
+    }
+  })
   return counts
 })
 
@@ -118,6 +125,11 @@ const scheduleGrid = computed(() => {
   otherAssignments.value.forEach(a => {
     if (grid[a.member]) {
       grid[a.member][a.shift_date] = { text: a.activity_name, type: 'other', patternId: 'other' }
+    }
+  })
+  fixedAssignments.value.forEach(a => {
+    if (grid[a.member_id]) {
+      grid[a.member_id][a.shift_date] = { text: a.shift_pattern_name, type: 'fixed', patternId: a.shift_pattern }
     }
   })
   return grid
@@ -210,6 +222,7 @@ const fetchScheduleData = async (shouldFetchAssignments = true) => {
     availabilities.value = response.data.availabilities;
     earnings.value = response.data.earnings;
     otherAssignments.value = response.data.other_assignments;
+    fixedAssignments.value = response.data.fixed_assignments; // 追加
   } catch (error) {
     console.error('スケジュールデータの読み込みに失敗しました:', error);
   }
@@ -257,7 +270,7 @@ const fetchScheduleData = async (shouldFetchAssignments = true) => {
                 :class="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].type : 'empty'"
                 :title="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].reason : ''">
               <select 
-                v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'infeasible' && scheduleGrid[member.id][header.date].type !== 'leave'" 
+                v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'infeasible' && scheduleGrid[member.id][header.date].type !== 'leave' && scheduleGrid[member.id][header.date].type !== 'fixed'" 
                 :value="scheduleGrid[member.id][header.date].patternId"
                 @change="handleShiftChange(member.id, header.date, $event)"
               >
@@ -334,6 +347,7 @@ td.assigned { background-color: #e6fffa; }
 td.available { background-color: #f7fafc; }
 td.empty { background-color: #edf2f7; color: #a0aec0; }
 td.infeasible { background-color: #fff5e6; color: #b7791f; font-weight: bold; font-size: 0.9em; padding: 8px 4px;}
+td.fixed { background-color: #cfe2f3; color: #000; font-weight: bold; padding: 8px 4px; }
 .stats {
   font-size: 0.8em;
   color: #555;

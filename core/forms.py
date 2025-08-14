@@ -33,3 +33,18 @@ class BulkAssignmentForm(forms.Form):
         label="対象日（カレンダーで選択）",
         widget=forms.HiddenInput()
     )
+
+class BulkFixedAssignmentForm(forms.Form):
+    member = forms.ModelChoiceField(
+        queryset=Member.objects.all(),
+        label="従業員"
+    )
+    shift_pattern = forms.ModelChoiceField(
+        queryset=ShiftPattern.objects.all(),
+        label="シフトパターン",
+        required=True
+    )
+    dates = forms.CharField(
+        label="対象日（カレンダーで選択）",
+        widget=forms.HiddenInput()
+    )

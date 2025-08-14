@@ -5,8 +5,8 @@ from rest_framework.response import Response
 from datetime import date, datetime, time, timedelta
 from collections import defaultdict
 
-from .models import Member, Assignment, LeaveRequest, MemberAvailability, ShiftPattern, OtherAssignment, TimeSlotRequirement
-from .serializers import MemberSerializer, AssignmentSerializer, MemberAvailabilitySerializer, ShiftPatternSerializer, OtherAssignmentSerializer
+from .models import Member, Assignment, LeaveRequest, MemberAvailability, ShiftPattern, OtherAssignment, TimeSlotRequirement, FixedAssignment
+from .serializers import MemberSerializer, AssignmentSerializer, MemberAvailabilitySerializer, ShiftPatternSerializer, OtherAssignmentSerializer, FixedAssignmentSerializer
 from .solver import generate_schedule
 
 class MemberListView(generics.ListAPIView):
@@ -30,6 +30,7 @@ class ScheduleDataView(APIView):
                 'members': member_serializer.data,
                 'assignments': [], 'leave_requests': [], 'availabilities': [],
                 'other_assignments': [], 'earnings': {},
+                'fixed_assignments': [],
             })
 
         start_date = date.fromisoformat(start_date_str)
@@ -37,6 +38,9 @@ class ScheduleDataView(APIView):
 
         assignments = Assignment.objects.filter(shift_date__range=[start_date, end_date]).select_related('member', 'shift_pattern')
         assignment_serializer = AssignmentSerializer(assignments, many=True)
+
+        fixed_assignments = FixedAssignment.objects.filter(shift_date__range=[start_date, end_date]).select_related('member', 'shift_pattern')
+        fixed_assignment_serializer = FixedAssignmentSerializer(fixed_assignments, many=True)
 
         leave_requests = LeaveRequest.objects.filter(status='approved', leave_date__range=[start_date, end_date])
         leave_data = [{'leave_date': str(req.leave_date), 'member_id': req.member.id} for req in leave_requests]
@@ -70,6 +74,7 @@ class ScheduleDataView(APIView):
         
         return Response({
             'assignments': assignment_serializer.data,
+            'fixed_assignments': fixed_assignment_serializer.data,
             'leave_requests': leave_data,
             'members': member_serializer.data,
             'availabilities': availability_serializer.data,

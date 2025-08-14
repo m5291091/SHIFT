@@ -1,10 +1,11 @@
 from django.contrib import admin
 from django.urls import path, reverse
 from django.shortcuts import render, redirect
-from .forms import BulkLeaveRequestForm, BulkUpdateMinDaysOffForm, BulkAssignmentForm
+from .forms import BulkLeaveRequestForm, BulkUpdateMinDaysOffForm, BulkAssignmentForm, BulkFixedAssignmentForm
 from .models import (
     Member, Skill, DayGroup, MemberSkill, ShiftPattern, MemberAvailability,
-    LeaveRequest, TimeSlotRequirement, RelationshipGroup, GroupMember, Assignment, OtherAssignment
+    LeaveRequest, TimeSlotRequirement, RelationshipGroup, GroupMember, Assignment, OtherAssignment,
+    FixedAssignment
 )
 
 class MemberAdmin(admin.ModelAdmin):
@@ -35,7 +36,7 @@ class MemberAdmin(admin.ModelAdmin):
     @admin.action(description='選択した従業員の最低公休日数を変更')
     def bulk_update_min_days_off_action(self, request, queryset):
         selected_ids = queryset.values_list('id', flat=True)
-        return redirect(f"{reverse('admin:core_member_bulk_update')}?ids={','.join(map(str, selected_ids))}")
+        return redirect(f"{reverse('admin:core_member_bulk_update')}?ids={', '.join(map(str, selected_ids))}")
 
     def bulk_update_view(self, request):
         if request.method == 'POST':
@@ -96,57 +97,57 @@ class TimeSlotRequirementAdmin(admin.ModelAdmin):
     list_display = ('day_group', 'start_time', 'end_time', 'min_headcount', 'max_headcount')
     list_filter = ('day_group',)
 
-# 【ここから変更・追加】
 class AssignmentAdmin(admin.ModelAdmin):
     list_display = ('shift_date', 'member', 'shift_pattern')
     list_filter = ('shift_date', 'member', 'shift_pattern')
 
+@admin.register(FixedAssignment)
+class FixedAssignmentAdmin(admin.ModelAdmin):
+    list_display = ('shift_date', 'member', 'shift_pattern')
+    list_filter = ('shift_date', 'member', 'shift_pattern')
+    
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
-            path('bulk-add/', self.admin_site.admin_view(self.bulk_add_view), name='core_assignment_bulk_add'),
+            path('bulk-add/', self.admin_site.admin_view(self.bulk_add_view), name='core_fixedassignment_bulk_add'),
         ]
         return custom_urls + urls
 
     def bulk_add_view(self, request):
         if request.method == 'POST':
-            form = BulkAssignmentForm(request.POST)
+            form = BulkFixedAssignmentForm(request.POST)
             if form.is_valid():
                 member = form.cleaned_data['member']
-                shift_pattern = form.cleaned_data.get('shift_pattern')
-                activity_name = form.cleaned_data.get('activity_name')
+                shift_pattern = form.cleaned_data['shift_pattern']
                 dates_str = form.cleaned_data['dates']
                 dates = dates_str.split(',')
                 
                 count = 0
                 for date_str in dates:
                     if not date_str: continue
-                    Assignment.objects.filter(member=member, shift_date=date_str).delete()
-                    OtherAssignment.objects.filter(member=member, shift_date=date_str).delete()
-                    if shift_pattern:
-                        Assignment.objects.create(member=member, shift_date=date_str, shift_pattern=shift_pattern)
-                        count += 1
-                    elif activity_name:
-                        OtherAssignment.objects.create(member=member, shift_date=date_str, activity_name=activity_name)
-                        count += 1
+                    FixedAssignment.objects.update_or_create(
+                        member=member, 
+                        shift_date=date_str,
+                        defaults={'shift_pattern': shift_pattern}
+                    )
+                    count += 1
                 
                 self.message_user(request, f"{count}件の固定シフトを登録・更新しました。")
-                return redirect('admin:core_assignment_changelist') # リダイレクト先を修正
+                return redirect('admin:core_fixedassignment_changelist')
         else:
-            form = BulkAssignmentForm()
+            form = BulkFixedAssignmentForm()
 
         context = dict(
            self.admin_site.each_context(request),
            form=form,
            title="固定シフトの一括登録"
         )
-        # 使用するテンプレートのパスを修正
-        return render(request, 'admin/core/assignment/bulk_add_form.html', context)
+        return render(request, 'admin/core/fixedassignment/bulk_add_form.html', context)
 
     def changelist_view(self, request, extra_context=None):
         extra_context = extra_context or {}
-        extra_context['bulk_add_url'] = reverse('admin:core_assignment_bulk_add')
-        return super().changelist_view(request, extra_context=extra_context)
+        extra_context['bulk_add_url'] = reverse('admin:core_fixedassignment_bulk_add')
+        return super().changelist_view(request, extra_context)
 
 class OtherAssignmentAdmin(admin.ModelAdmin):
     list_display = ('member', 'shift_date', 'activity_name')
@@ -158,7 +159,7 @@ admin.site.register(ShiftPattern, ShiftPatternAdmin)
 admin.site.register(LeaveRequest, LeaveRequestAdmin)
 admin.site.register(TimeSlotRequirement, TimeSlotRequirementAdmin)
 admin.site.register(OtherAssignment, OtherAssignmentAdmin)
-admin.site.register(Assignment, AssignmentAdmin) # AssignmentにカスタムAdminを適用
+admin.site.register(Assignment, AssignmentAdmin)
 
 admin.site.register(Skill)
 admin.site.register(DayGroup)

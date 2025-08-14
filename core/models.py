@@ -193,3 +193,16 @@ class MemberSkill(models.Model):
 
     def __str__(self):
         return f"{self.member.name}: {self.skill.skill_name}"
+
+class FixedAssignment(models.Model):
+    member = models.ForeignKey(Member, on_delete=models.CASCADE, verbose_name="従業員")
+    shift_pattern = models.ForeignKey(ShiftPattern, on_delete=models.CASCADE, verbose_name="シフトパターン")
+    shift_date = models.DateField("勤務日")
+
+    class Meta:
+        verbose_name = "固定シフト"
+        verbose_name_plural = "固定シフト"
+        unique_together = ('member', 'shift_date')
+
+    def __str__(self):
+        return f"{self.shift_date} {self.member.name} ({self.shift_pattern.pattern_name})"

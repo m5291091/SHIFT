@@ -1,0 +1,24 @@
+{% extends "admin/base_site.html" %}{% load i18n %}
+{% block content %}
+<h1>シフトパターンの一括登録</h1>
+<p>従業員とシフトパターンを選択し、カレンダーで対象日を複数選択してください。</p>
+<form method="post">{% csrf_token %}{{ form.as_p }}<div id="calendar"></div><input type="submit" value="保存"></form>
+{% endblock %}
+{% block extrahead %}{{ block.super }}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    flatpickr("#calendar", { mode: "multiple", dateFormat: "Y-m-d", inline: true,
+        onChange: function(selectedDates) {
+            document.getElementById('id_dates').value = selectedDates.map(date => {
+                const y = date.getFullYear();
+                const m = String(date.getMonth() + 1).padStart(2, '0');
+                const d = String(date.getDate()).padStart(2, '0');
+                return `${y}-${m}-${d}`;
+            }).join(',');
+        }
+    });
+});
+</script>
+{% endblock %}

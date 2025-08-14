@@ -1,5 +1,5 @@
 from ortools.sat.python import cp_model
-from .models import Member, ShiftPattern, LeaveRequest, TimeSlotRequirement, Assignment, DayGroup, RelationshipGroup, OtherAssignment
+from .models import Member, ShiftPattern, LeaveRequest, TimeSlotRequirement, Assignment, DayGroup, RelationshipGroup, OtherAssignment, FixedAssignment
 from .serializers import AssignmentSerializer
 from datetime import date, timedelta, datetime, time
 from collections import defaultdict
@@ -12,6 +12,25 @@ def generate_schedule(start_date_str, end_date_str):
 
     all_members = Member.objects.all().prefetch_related('assignable_patterns', 'allowed_day_groups')
     all_patterns = ShiftPattern.objects.all()
+    fixed_assignments = FixedAssignment.objects.filter(shift_date__range=[start_date, end_date]).select_related('shift_pattern', 'member')
+    time_interval = 30
+
+    # 固定シフトがカバーするスロットと、(member, day) のセットを事前に計算
+    fixed_slot_coverage = defaultdict(int)
+    fixed_member_days = set()
+    for fa in fixed_assignments:
+        fixed_member_days.add((fa.member.id, fa.shift_date))
+        p_start, p_end = fa.shift_pattern.start_time, fa.shift_pattern.end_time
+        current_time = datetime.combine(fa.shift_date, p_start)
+        end_time_dt = datetime.combine(fa.shift_date, p_end)
+        if p_end < p_start:
+            end_time_dt += timedelta(days=1)
+        
+        num_intervals = int(((end_time_dt - current_time).total_seconds() / 60) / time_interval)
+        for i in range(num_intervals):
+            slot_start_dt = current_time + timedelta(minutes=i * time_interval)
+            if start_date <= slot_start_dt.date() <= end_date:
+                fixed_slot_coverage[(slot_start_dt.date(), slot_start_dt.time())] += 1
 
     shift_work_minutes = {}
     for p in all_patterns:
@@ -94,10 +113,18 @@ def generate_schedule(start_date_str, end_date_str):
             total_penalty_terms.append(abs_deviation * WORK_DAY_DEVIATION_PENALTY)
 
     # --- 4. 制約の追加 ---
-    time_interval = 30
+    # 固定シフトの制約
+    for fa in fixed_assignments:
+        model.Add(shifts[(fa.member.id, fa.shift_date, fa.shift_pattern.id)] == 1)
+
     slot_coverage = defaultdict(list)
     for m in all_members:
         for d in days:
+            # 固定シフトが割り当てられている日は、その従業員の他のシフト変数は0になるので、
+            # slot_coverage の計算からは除外する
+            if (m.id, d) in fixed_member_days:
+                continue
+            
             for p in all_patterns:
                 p_start, p_end = p.start_time, p.end_time
                 current_time = datetime.combine(d, p_start)
@@ -126,12 +153,16 @@ def generate_schedule(start_date_str, end_date_str):
             current_slot_start = time(t // 60, t % 60)
             rule_for_slot = next((req for req in requirements if req.start_time <= current_slot_start and current_slot_start < req.end_time), None)
             if rule_for_slot:
-                workers_in_slot = [s for s, member_id in slot_coverage.get((d, current_slot_start), [])]
+                variable_workers_in_slot = [s for s, m_id in slot_coverage.get((d, current_slot_start), [])]
+                fixed_workers_in_slot = fixed_slot_coverage.get((d, current_slot_start), 0)
+                
+                total_workers_expr = sum(variable_workers_in_slot) + fixed_workers_in_slot
+
                 shortfall = model.NewIntVar(0, rule_for_slot.min_headcount, f'headcount_shortfall_d{d}_t{t}')
-                model.Add(sum(workers_in_slot) + shortfall >= rule_for_slot.min_headcount)
+                model.Add(total_workers_expr + shortfall >= rule_for_slot.min_headcount)
                 total_penalty_terms.append(shortfall * HEADCOUNT_PENALTY_COST)
                 if rule_for_slot.max_headcount is not None:
-                    model.Add(sum(workers_in_slot) <= rule_for_slot.max_headcount)
+                    model.Add(total_workers_expr <= rule_for_slot.max_headcount)
     
     for req in LeaveRequest.objects.filter(status='approved', leave_date__range=[start_date, end_date]):
         for p in all_patterns:
