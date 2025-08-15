@@ -1,28 +1,44 @@
-# (省略部分はありません。このファイル全体を置き換えてください)
 from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from datetime import date, datetime, time, timedelta
 from collections import defaultdict
 
-from .models import Member, Assignment, LeaveRequest, MemberAvailability, ShiftPattern, OtherAssignment, TimeSlotRequirement, FixedAssignment
-from .serializers import MemberSerializer, AssignmentSerializer, MemberAvailabilitySerializer, ShiftPatternSerializer, OtherAssignmentSerializer, FixedAssignmentSerializer
+from .models import Member, Assignment, LeaveRequest, MemberAvailability, ShiftPattern, OtherAssignment, TimeSlotRequirement, FixedAssignment, Department
+from .serializers import MemberSerializer, AssignmentSerializer, MemberAvailabilitySerializer, ShiftPatternSerializer, OtherAssignmentSerializer, FixedAssignmentSerializer, DepartmentSerializer
 from .solver import generate_schedule
+
+class DepartmentListView(generics.ListAPIView):
+    queryset = Department.objects.all().order_by('name')
+    serializer_class = DepartmentSerializer
 
 class MemberListView(generics.ListAPIView):
     queryset = Member.objects.all().order_by('sort_order', 'name')
     serializer_class = MemberSerializer
 
 class ShiftPatternListView(generics.ListAPIView):
-    queryset = ShiftPattern.objects.all()
     serializer_class = ShiftPatternSerializer
+
+    def get_queryset(self):
+        queryset = ShiftPattern.objects.all()
+        department_id = self.request.query_params.get('department_id')
+        if department_id is not None:
+            queryset = queryset.filter(department_id=department_id)
+        return queryset
 
 class ScheduleDataView(APIView):
     def get(self, request, *args, **kwargs):
+        department_id = self.request.query_params.get('department_id')
         start_date_str = self.request.query_params.get('start_date')
         end_date_str = self.request.query_params.get('end_date')
         
-        members = Member.objects.all().order_by('sort_order', 'name')
+        members_queryset = Member.objects.all()
+        shift_patterns_queryset = ShiftPattern.objects.all()
+        if department_id:
+            members_queryset = members_queryset.filter(department_id=department_id)
+            shift_patterns_queryset = shift_patterns_queryset.filter(department_id=department_id)
+
+        members = members_queryset.order_by('sort_order', 'name')
         member_serializer = MemberSerializer(members, many=True)
 
         if not start_date_str or not end_date_str:
@@ -36,19 +52,34 @@ class ScheduleDataView(APIView):
         start_date = date.fromisoformat(start_date_str)
         end_date = date.fromisoformat(end_date_str)
 
-        assignments = Assignment.objects.filter(shift_date__range=[start_date, end_date]).select_related('member', 'shift_pattern')
+        assignments = Assignment.objects.filter(
+            shift_date__range=[start_date, end_date],
+            member__department_id=department_id
+        ).select_related('member', 'shift_pattern')
         assignment_serializer = AssignmentSerializer(assignments, many=True)
 
-        fixed_assignments = FixedAssignment.objects.filter(shift_date__range=[start_date, end_date]).select_related('member', 'shift_pattern')
+        fixed_assignments = FixedAssignment.objects.filter(
+            shift_date__range=[start_date, end_date],
+            member__department_id=department_id
+        ).select_related('member', 'shift_pattern')
         fixed_assignment_serializer = FixedAssignmentSerializer(fixed_assignments, many=True)
 
-        leave_requests = LeaveRequest.objects.filter(status='approved', leave_date__range=[start_date, end_date])
+        leave_requests = LeaveRequest.objects.filter(
+            status='approved', 
+            leave_date__range=[start_date, end_date],
+            member__department_id=department_id
+        )
         leave_data = [{'leave_date': str(req.leave_date), 'member_id': req.member.id} for req in leave_requests]
         
-        availabilities = MemberAvailability.objects.all()
+        availabilities = MemberAvailability.objects.filter(
+            member__department_id=department_id
+        )
         availability_serializer = MemberAvailabilitySerializer(availabilities, many=True)
 
-        other_assignments = OtherAssignment.objects.filter(shift_date__range=[start_date, end_date])
+        other_assignments = OtherAssignment.objects.filter(
+            shift_date__range=[start_date, end_date],
+            member__department_id=department_id
+        )
         other_serializer = OtherAssignmentSerializer(other_assignments, many=True)
 
         earnings_map = defaultdict(float)
@@ -84,11 +115,12 @@ class ScheduleDataView(APIView):
 
 class GenerateShiftView(APIView):
     def post(self, request, *args, **kwargs):
+        department_id = request.data.get('department_id')
         start_date = request.data.get('start_date')
         end_date = request.data.get('end_date')
-        if not start_date or not end_date:
-            return Response({'error': 'start_date and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
-        result = generate_schedule(start_date, end_date)
+        if not start_date or not end_date or not department_id:
+            return Response({'error': 'department_id, start_date and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
+        result = generate_schedule(department_id, start_date, end_date)
         return Response(result, status=status.HTTP_200_OK)
 
 class ManualAssignmentView(APIView):
@@ -96,8 +128,19 @@ class ManualAssignmentView(APIView):
         member_id = request.data.get('member_id')
         shift_date = request.data.get('shift_date')
         pattern_id = request.data.get('pattern_id')
-        Assignment.objects.filter(member_id=member_id, shift_date=shift_date).delete()
-        OtherAssignment.objects.filter(member_id=member_id, shift_date=shift_date).delete()
+        
+        member = Member.objects.get(id=member_id)
+        
+        Assignment.objects.filter(
+            member_id=member_id, 
+            shift_date=shift_date,
+            member__department_id=member.department.id
+        ).delete()
+        OtherAssignment.objects.filter(
+            member_id=member_id, 
+            shift_date=shift_date,
+            member__department_id=member.department.id
+        ).delete()
         if pattern_id:
             Assignment.objects.create(member_id=member_id, shift_pattern_id=pattern_id, shift_date=shift_date)
         return Response(status=status.HTTP_200_OK)
@@ -107,8 +150,19 @@ class OtherAssignmentView(APIView):
         member_id = request.data.get('member_id')
         shift_date = request.data.get('shift_date')
         activity_name = request.data.get('activity_name')
-        Assignment.objects.filter(member_id=member_id, shift_date=shift_date).delete()
-        OtherAssignment.objects.filter(member_id=member_id, shift_date=shift_date).delete()
+        
+        member = Member.objects.get(id=member_id)
+        
+        Assignment.objects.filter(
+            member_id=member_id, 
+            shift_date=shift_date,
+            member__department_id=member.department.id
+        ).delete()
+        OtherAssignment.objects.filter(
+            member_id=member_id, 
+            shift_date=shift_date,
+            member__department_id=member.department.id
+        ).delete()
         if activity_name:
             OtherAssignment.objects.create(member_id=member_id, shift_date=shift_date, activity_name=activity_name)
         return Response(status=status.HTTP_200_OK)

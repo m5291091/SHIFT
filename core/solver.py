@@ -9,20 +9,20 @@ from datetime import date, timedelta, datetime, time
 from collections import defaultdict
 import itertools
 
-def generate_schedule(start_date_str, end_date_str):
+def generate_schedule(department_id, start_date_str, end_date_str):
     # --- 1. データ準備 ---
     start_date = date.fromisoformat(start_date_str)
     end_date = date.fromisoformat(end_date_str)
     days = [start_date + timedelta(days=i) for i in range((end_date - start_date).days + 1)]
 
-    all_members = Member.objects.all().prefetch_related('shift_preferences', 'allowed_day_groups')
-    all_patterns = ShiftPattern.objects.all()
-    fixed_assignments = FixedAssignment.objects.filter(shift_date__range=[start_date, end_date]).select_related('shift_pattern', 'member')
-    other_assignments = OtherAssignment.objects.filter(shift_date__range=[start_date, end_date])
-    specific_date_reqs = SpecificDateRequirement.objects.filter(date__range=[start_date, end_date])
-    specific_timeslot_reqs = SpecificTimeSlotRequirement.objects.filter(date__range=[start_date, end_date])
-    prefs = MemberShiftPatternPreference.objects.all()
-    priority_map = {(p.member_id, p.shift_pattern_id): p.priority for p in prefs}
+    all_members = Member.objects.filter(department_id=department_id).prefetch_related('shift_preferences', 'allowed_day_groups')
+    all_patterns = ShiftPattern.objects.filter(department_id=department_id)
+    fixed_assignments = FixedAssignment.objects.filter(shift_date__range=[start_date, end_date], member__department_id=department_id).select_related('shift_pattern', 'member')
+    other_assignments = OtherAssignment.objects.filter(shift_date__range=[start_date, end_date], member__department_id=department_id).select_related('member')
+    specific_date_reqs = SpecificDateRequirement.objects.filter(date__range=[start_date, end_date], department_id=department_id)
+    specific_timeslot_reqs = SpecificTimeSlotRequirement.objects.filter(date__range=[start_date, end_date], department_id=department_id)
+    prefs = MemberShiftPatternPreference.objects.filter(member__department_id=department_id)
+    priority_map = {(p.member_id, p.shift_pattern.id): p.priority for p in prefs}
     time_interval = 30
 
     # 特定日の設定がある日付をセットとして保持
@@ -55,12 +55,22 @@ def generate_schedule(start_date_str, end_date_str):
         shift_work_minutes[p.id] = int(work_minutes)
 
     day_difficulty = defaultdict(int)
-    for req in LeaveRequest.objects.filter(status='approved', leave_date__range=[start_date, end_date]):
+    leave_requests_map = defaultdict(set)
+    for req in LeaveRequest.objects.filter(status='approved', leave_date__range=[start_date, end_date], member__department_id=department_id):
         day_difficulty[req.leave_date] += 1
+        leave_requests_map[req.member.id].add(req.leave_date)
 
     # --- 2. モデルと変数の定義 ---
     model = cp_model.CpModel()
     shifts = {}
+    shortfall_vars = {}
+    actual_workers_in_slot_vars = {}
+    work_day_surplus_vars = {}
+    incompatible_violation_vars = {}
+    unavailable_day_violation_vars = {}
+    salary_shortfall_vars = {}
+    salary_surplus_vars = {}
+
     for m in all_members:
         for d in days:
             for p in all_patterns:
@@ -69,16 +79,16 @@ def generate_schedule(start_date_str, end_date_str):
     # --- 3. 目的関数とペナルティの準備 ---
     total_priority_score = []
     total_penalty_terms = []
-    HEADCOUNT_PENALTY_COST = 100000
+    HEADCOUNT_PENALTY_COST = 10000000
+    HOLIDAY_VIOLATION_PENALTY = 50000
+    INCOMPATIBLE_PENALTY = 60000
+    SALARY_TOO_LOW_PENALTY = 40000
+    SALARY_TOO_HIGH_PENALTY = 30000
     DIFFICULTY_BONUS_WEIGHT = 10000 
     WORK_DAY_DEVIATION_PENALTY = 7000
     PAIRING_BONUS = 5000
     SHIFT_PREFERENCE_BONUS = 100
 
-    leave_requests_map = defaultdict(set)
-    for req in LeaveRequest.objects.filter(status='approved', leave_date__range=[start_date, end_date]):
-        leave_requests_map[req.member_id].add(req.leave_date)
-    
     for m in all_members:
         num_possible_shifts = 0
         allowed_patterns = {p.id for p in m.shift_preferences.all()}
@@ -96,7 +106,16 @@ def generate_schedule(start_date_str, end_date_str):
         
         for d in days:
             if d in leave_requests_map.get(m.id, set()): continue
-            if allowed_groups.exists() and d.weekday() not in allowed_weekdays: continue
+            
+            is_unavailable_day_violation = model.NewBoolVar(f'unavailable_day_violation_m{m.id}_d{d}')
+            unavailable_day_violation_vars[(m.id, d)] = is_unavailable_day_violation
+            if allowed_groups.exists() and d.weekday() not in allowed_weekdays:
+                model.Add(sum(shifts.get((m.id, d, p.id), 0) for p in all_patterns) == 0).OnlyEnforceIf(is_unavailable_day_violation.Not())
+                total_penalty_terms.append(is_unavailable_day_violation * UNAVAILABLE_DAY_PENALTY)
+            else:
+                # If no violation, ensure the violation variable is false
+                model.Add(is_unavailable_day_violation == 0)
+
             for p in all_patterns:
                 if allowed_patterns and p.id not in allowed_patterns: continue
                 num_possible_shifts += 1
@@ -168,6 +187,13 @@ def generate_schedule(start_date_str, end_date_str):
                     for d in days:
                         model.Add(shifts[(m.id, d, p.id)] == 0)
 
+    # 各シフトパターンの最高人数制約
+    for d in days:
+        for p in all_patterns:
+            if p.max_headcount is not None:
+                workers_in_pattern_on_day = sum(shifts[(m.id, d, p.id)] for m in all_members)
+                model.Add(workers_in_pattern_on_day <= p.max_headcount)
+
     slot_coverage = defaultdict(list)
     for m in all_members:
         for d in days:
@@ -190,7 +216,10 @@ def generate_schedule(start_date_str, end_date_str):
         for slot_key, covering_shifts in slot_coverage.items():
             incompatible_shifts_in_slot = [s for s, member_id in covering_shifts if member_id in members_in_group_ids]
             if incompatible_shifts_in_slot:
-                model.Add(sum(incompatible_shifts_in_slot) <= 1)
+                incompatible_violation = model.NewIntVar(0, len(incompatible_shifts_in_slot), f'incompatible_violation_d{slot_key[0]}_t{slot_key[1]}')
+                incompatible_violation_vars[slot_key] = incompatible_violation
+                model.Add(sum(incompatible_shifts_in_slot) <= 1 + incompatible_violation)
+                total_penalty_terms.append(incompatible_violation * INCOMPATIBLE_PENALTY)
 
     # 必要人数の制約 (曜日グループ or 特定日)
     for d in days:
@@ -204,16 +233,22 @@ def generate_schedule(start_date_str, end_date_str):
                         variable_workers_in_slot = [s for s, m_id in slot_coverage.get((d, current_slot_start), [])]
                         fixed_workers_in_slot = fixed_slot_coverage.get((d, current_slot_start), 0)
                         total_workers_expr = sum(variable_workers_in_slot) + fixed_workers_in_slot
+                        actual_workers_in_slot = model.NewIntVar(0, len(all_members), f'actual_workers_d{d}_t{t}')
+                        actual_workers_in_slot_vars[(d, t)] = actual_workers_in_slot
+                        model.Add(actual_workers_in_slot == total_workers_expr)
                         shortfall = model.NewIntVar(0, rule_for_slot.min_headcount, f'headcount_shortfall_d{d}_t{t}')
+                        shortfall_vars[(d, t)] = shortfall
                         model.Add(total_workers_expr + shortfall >= rule_for_slot.min_headcount)
                         total_penalty_terms.append(shortfall * HEADCOUNT_PENALTY_COST)
                         if rule_for_slot.max_headcount is not None:
-                            model.Add(total_workers_expr <= rule_for_slot.max_headcount)
+                            model.Add(actual_workers_in_slot <= rule_for_slot.max_headcount)
+                        else:
+                            raise ValueError(f"max_headcount is None for rule {rule_for_slot.id} at {d} {current_slot_start}")
         else:
             day_name_field = f"is_{d.strftime('%A').lower()}"
             applicable_groups = DayGroup.objects.filter(**{day_name_field: True})
             if not applicable_groups.exists(): continue
-            requirements = TimeSlotRequirement.objects.filter(day_group__in=applicable_groups)
+            requirements = TimeSlotRequirement.objects.filter(day_group__in=applicable_groups, department_id=department_id)
             for t in range(0, 24 * 60, time_interval):
                 current_slot_start = time(t // 60, t % 60)
                 rule_for_slot = next((req for req in requirements if req.start_time <= current_slot_start and current_slot_start < req.end_time), None)
@@ -221,13 +256,19 @@ def generate_schedule(start_date_str, end_date_str):
                     variable_workers_in_slot = [s for s, m_id in slot_coverage.get((d, current_slot_start), [])]
                     fixed_workers_in_slot = fixed_slot_coverage.get((d, current_slot_start), 0)
                     total_workers_expr = sum(variable_workers_in_slot) + fixed_workers_in_slot
+                    actual_workers_in_slot = model.NewIntVar(0, len(all_members), f'actual_workers_d{d}_t{t}')
+                    actual_workers_in_slot_vars[(d, t)] = actual_workers_in_slot
+                    model.Add(actual_workers_in_slot == total_workers_expr)
                     shortfall = model.NewIntVar(0, rule_for_slot.min_headcount, f'headcount_shortfall_d{d}_t{t}')
+                    shortfall_vars[(d, t)] = shortfall
                     model.Add(total_workers_expr + shortfall >= rule_for_slot.min_headcount)
                     total_penalty_terms.append(shortfall * HEADCOUNT_PENALTY_COST)
                     if rule_for_slot.max_headcount is not None:
-                        model.Add(total_workers_expr <= rule_for_slot.max_headcount)
+                        model.Add(actual_workers_in_slot <= rule_for_slot.max_headcount)
+                    else:
+                        raise ValueError(f"max_headcount is None for rule {rule_for_slot.id} at {d} {current_slot_start}")
     
-    for req in LeaveRequest.objects.filter(status='approved', leave_date__range=[start_date, end_date]):
+    for req in LeaveRequest.objects.filter(status='approved', leave_date__range=[start_date, end_date], member__department_id=department_id):
         for p in all_patterns:
             if (req.member.id, req.leave_date, p.id) in shifts:
                 model.Add(shifts[(req.member.id, req.leave_date, p.id)] == 0)
@@ -263,15 +304,30 @@ def generate_schedule(start_date_str, end_date_str):
         
         num_days_in_period = len(days)
         total_work_days_sum = sum(work_days_in_period)
-        
-        if m.enforce_exact_holidays:
-            required_work_days = num_days_in_period - m.min_monthly_days_off
-            if required_work_days >= 0:
-                model.Add(total_work_days_sum == required_work_days)
-        else:
-            max_work_days = num_days_in_period - m.min_monthly_days_off
-            if max_work_days >= 0:
-                model.Add(total_work_days_sum <= max_work_days)
+        max_work_days = num_days_in_period - m.min_monthly_days_off
+
+        if max_work_days >= 0:
+            work_day_surplus = model.NewIntVar(0, num_days_in_period, f'work_day_surplus_m{m.id}')
+            work_day_surplus_vars[m.id] = work_day_surplus
+            model.Add(total_work_days_sum <= max_work_days + work_day_surplus)
+            total_penalty_terms.append(work_day_surplus * HOLIDAY_VIOLATION_PENALTY)
+
+        # Salary-based penalties
+        if m.employee_type == 'hourly' and m.hourly_wage is not None:
+            total_earnings = model.NewIntVar(0, 10000000, f'total_earnings_m{m.id}') # Max earnings for a month
+            model.Add(total_earnings == sum(shifts[(m.id, d, p.id)] * ((shift_work_minutes[p.id] * m.hourly_wage) // 60) for d in days for p in all_patterns))
+
+            if m.min_monthly_salary is not None:
+                salary_shortfall = model.NewIntVar(0, m.min_monthly_salary, f'salary_shortfall_m{m.id}')
+                salary_shortfall_vars[m.id] = salary_shortfall
+                model.Add(total_earnings + salary_shortfall >= m.min_monthly_salary)
+                total_penalty_terms.append(salary_shortfall * SALARY_TOO_LOW_PENALTY)
+
+            if m.max_monthly_salary is not None:
+                salary_surplus = model.NewIntVar(0, 10000000, f'salary_surplus_m{m.id}') # Max earnings for a month
+                salary_surplus_vars[m.id] = salary_surplus
+                model.Add(total_earnings <= m.max_monthly_salary + salary_surplus)
+                total_penalty_terms.append(salary_surplus * SALARY_TOO_HIGH_PENALTY)
 
     # --- 5. 目的関数の設定 ---
     model.Maximize(sum(total_priority_score) - sum(total_penalty_terms))
@@ -281,7 +337,7 @@ def generate_schedule(start_date_str, end_date_str):
     solver.parameters.max_time_in_seconds = 15.0
     status = solver.Solve(model)
     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
-        Assignment.objects.filter(shift_date__range=[start_date, end_date]).delete()
+        Assignment.objects.filter(shift_date__range=[start_date, end_date], member__department_id=department_id).delete()
         new_assignments = []
         for m in all_members:
             for d in days:
@@ -290,7 +346,59 @@ def generate_schedule(start_date_str, end_date_str):
                         new_assignments.append(Assignment(member_id=m.id, shift_pattern_id=p.id, shift_date=d))
         Assignment.objects.bulk_create(new_assignments)
         
+        infeasible_days_info = defaultdict(list)
+
+        # 1. Headcount Shortfall/Surplus
+        for (d, t), var in shortfall_vars.items():
+            if solver.Value(var) > 0:
+                infeasible_days_info[str(d)].append(f'時間帯 {time(t // 60, t % 60).strftime('%H:%M')} に {solver.Value(var)} 人の不足')
+        
+        # Check for hard constraint violation of max_headcount (should not happen if model is correct)
+        for (d, t), var in actual_workers_in_slot_vars.items():
+            # Find the rule for this slot to get max_headcount
+            rule_for_slot = None
+            if d in dates_with_specific_reqs:
+                day_specific_reqs = [req for req in specific_timeslot_reqs if req.date == d]
+                rule_for_slot = next((req for req in day_specific_reqs if req.start_time <= time(t // 60, t % 60) and time(t // 60, t % 60) < req.end_time), None)
+            else:
+                day_name_field = f"is_{d.strftime('%A').lower()}"
+                applicable_groups = DayGroup.objects.filter(**{day_name_field: True})
+                if applicable_groups.exists():
+                    requirements = TimeSlotRequirement.objects.filter(day_group__in=applicable_groups, department_id=department_id)
+                    rule_for_slot = next((req for req in requirements if req.start_time <= time(t // 60, t % 60) and time(t // 60, t % 60) < req.end_time), None)
+
+            if rule_for_slot and rule_for_slot.max_headcount is not None:
+                if solver.Value(var) > rule_for_slot.max_headcount:
+                    infeasible_days_info[str(d)].append(f'時間帯 {time(t // 60, t % 60).strftime('%H:%M')} に最高人数 ({rule_for_slot.max_headcount}人) を {solver.Value(var) - rule_for_slot.max_headcount} 人超過 (ハード制約違反)')
+
+        # 2. Holiday Violation
+        for member_id, var in work_day_surplus_vars.items():
+            if solver.Value(var) > 0:
+                member_name = next((m.name for m in all_members if m.id == member_id), f'Member {member_id}')
+                infeasible_days_info[str(start_date)].append(f'{member_name} が最低休日数を {solver.Value(var)} 日下回りました') # Link to start_date of period
+
+        # 3. Incompatible Members
+        for (d, t), var in incompatible_violation_vars.items():
+            if solver.Value(var) > 0:
+                infeasible_days_info[str(d)].append(f'時間帯 {time(t // 60, t % 60).strftime('%H:%M')} に相性の悪いメンバーが {solver.Value(var)} 組勤務')
+
+        # 4. Unavailable Day Assignment
+        for (member_id, d), var in unavailable_day_violation_vars.items():
+            if solver.Value(var) == 1:
+                member_name = next((m.name for m in all_members if m.id == member_id), f'Member {member_id}')
+                infeasible_days_info[str(d)].append(f'{member_name} が勤務不可曜日に割り当てられました')
+
+        # 5. Salary Violations
+        for member_id, var in salary_shortfall_vars.items():
+            if solver.Value(var) > 0:
+                member_name = next((m.name for m in all_members if m.id == member_id), f'Member {member_id}')
+                infeasible_days_info[str(start_date)].append(f'{member_name} の給与が目標最低額を {solver.Value(var)} 円下回りました')
+        for member_id, var in salary_surplus_vars.items():
+            if solver.Value(var) > 0:
+                member_name = next((m.name for m in all_members if m.id == member_id), f'Member {member_id}')
+                infeasible_days_info[str(start_date)].append(f'{member_name} の給与が目標最高額を {solver.Value(var)} 円上回りました')
+
         serializer = AssignmentSerializer(new_assignments, many=True)
-        return {'success': True, 'infeasible_days': {}, 'assignments': serializer.data}
+        return {'success': True, 'infeasible_days': dict(infeasible_days_info), 'assignments': serializer.data}
     
-    return {'success': False, 'infeasible_days': {}, 'assignments': []}
+    return {'success': False, 'infeasible_days': {'general': ['指定された期間でシフトを生成できませんでした。制約が厳しすぎるか、人員が不足している可能性があります。']}, 'assignments': []}

@@ -1,30 +1,62 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import axios from 'axios'
 
+const departments = ref([])
+const selectedDepartment = ref(null)
 const startDate = ref('')
 const endDate = ref('')
 const isLoading = ref(false)
 const message = ref('')
 const members = ref([])
 const assignments = ref([])
-const fixedAssignments = ref([]) // 追加
+const fixedAssignments = ref([])
 const leaveRequests = ref([])
 const availabilities = ref([])
 const shiftPatterns = ref([])
 const infeasibleDays = ref({})
 const earnings = ref({})
 const otherAssignments = ref([])
+const selectedCells = ref({}) // New reactive property for multi-selection
+
+// Descriptions for solver settings
+const settingDescriptions = {
+  headcount_penalty_cost: '時間帯の最低必要人数が不足した場合のペナルティ。高いほど人数充足を優先します。',
+  headcount_surplus_penalty: '時間帯の最高人数を超過した場合のペナルティ。高いほど人数超過を避けます。',
+  unavailable_day_penalty: '従業員が勤務不可曜日への割り当てペナルティ。高いほど曜日制約を優先します。',
+  incompatible_penalty: '相性の悪いメンバーが同時に勤務した場合のペナルティ。高いほど同時勤務を避けます。',
+  holiday_violation_penalty: '月の最低公休日数を下回った場合のペナルティ。高いほど休日制約を優先します。',
+  salary_too_low_penalty: '時給制メンバーの給与が目標最低額を下回った場合のペナルティ。高いほど最低給与を優先します。',
+  salary_too_high_penalty: '時給制メンバーの給与が目標最高額を上回る場合のペナルティ。高いほど最高給与を避けます。',
+  difficulty_bonus_weight: '希望休が多い困難な日にシフトを割り当てた場合のボーナス。高いほど困難な日を埋めることを優先します。',
+  pairing_bonus: 'ペアリングメンバーが同時に勤務した場合のボーナス。高いほどペアリングを優先します。',
+  shift_preference_bonus: '従業員のシフト希望を尊重した場合のボーナス。高いほど希望を優先します。',
+}
+
 
 onMounted(async () => {
   try {
-    const response = await axios.get('http://127.0.0.1:8000/api/v1/shift-patterns/')
-    shiftPatterns.value = response.data
+    const deptResponse = await axios.get('http://127.0.0.1:8000/api/v1/departments/')
+    departments.value = deptResponse.data
+    if (departments.value.length > 0) {
+      selectedDepartment.value = departments.value[0].id
+    }
   } catch (error) {
-    console.error('シフトパターンの取得に失敗しました:', error)
+    console.error('データ取得に失敗しました:', error)
   }
-  await fetchScheduleData(true);
 })
+
+watch(selectedDepartment, async (newDepartmentId) => {
+  if (newDepartmentId) {
+    try {
+      const response = await axios.get(`http://127.0.0.1:8000/api/v1/shift-patterns/`, { params: { department_id: newDepartmentId } })
+      shiftPatterns.value = response.data
+    } catch (error) {
+      console.error('シフトパターンの取得に失敗しました:', error)
+    }
+    await fetchScheduleData(true);
+  }
+});
 
 const getAssignablePatternsForMember = (member) => {
   if (!member.assignable_patterns || member.assignable_patterns.length === 0) {
@@ -128,19 +160,27 @@ const scheduleGrid = computed(() => {
   members.value.forEach(member => {
     grid[member.id] = {}
     dateHeaders.value.forEach(header => {
+      // Default to empty cell
+      let cell = { text: '/', type: 'empty', patternId: null };
+
+      // Check for availability (overrides default empty)
+      const dayOfWeek = new Date(header.date + 'T00:00:00').getDay()
+      const dayOfWeekForDjango = (dayOfWeek + 6) % 7;
+      const isAvailable = availabilities.value.some(avail => 
+        avail.member === member.id && avail.day_of_week === dayOfWeekForDjango
+      )
+      if(isAvailable) {
+        cell = { text: '-', type: 'available', patternId: null };
+      }
+
+      // Check for day-level infeasibility (overrides empty/available if present)
       if (infeasibleDays.value[header.date]) {
-        grid[member.id][header.date] = { text: '人員不足', type: 'infeasible', patternId: null, reason: infeasibleDays.value[header.date] }
-      } else {
-        grid[member.id][header.date] = { text: '/', type: 'empty', patternId: null }
-        const dayOfWeek = new Date(header.date + 'T00:00:00').getDay()
-        const dayOfWeekForDjango = (dayOfWeek + 6) % 7;
-        const isAvailable = availabilities.value.some(avail => 
-          avail.member === member.id && avail.day_of_week === dayOfWeekForDjango
-        )
-        if(isAvailable) {
-          grid[member.id][header.date] = { text: '-', type: 'available', patternId: null }
+        // Only apply infeasible type if it's an empty or available cell
+        if (cell.type === 'empty' || cell.type === 'available') {
+          cell = { text: '\\', type: 'infeasible', patternId: null, reason: infeasibleDays.value[header.date] };
         }
       }
+      grid[member.id][header.date] = cell;
     })
   })
   leaveRequests.value.forEach(req => {
@@ -184,6 +224,7 @@ const handleShiftChange = async (memberId, date, event) => {
   message.value = '手動変更を保存中...';
   
   try {
+    console.log('Attempting to save shift change:', { memberId, date, selectedValue });
     if (selectedValue === 'other') {
       const activityName = prompt('業務内容を入力してください（例：研修）');
       if (activityName) {
@@ -193,23 +234,23 @@ const handleShiftChange = async (memberId, date, event) => {
       }
     } else {
       const patternId = selectedValue === 'delete' ? null : selectedValue;
-      await axios.post('http://127.0.0.1:8000/api/v1/manual-assignment/', {
+      await axios.post('http://127.0.0.1:8000/api/v1/fixed-assignment/', {
         member_id: memberId, shift_date: date, pattern_id: patternId,
       });
     }
-    await fetchScheduleData(true);
     message.value = '手動変更が保存されました。';
+    await fetchScheduleData(true);
   } catch (error) {
     message.value = '手動変更の保存に失敗しました。';
-    console.error(error);
+    console.error('Error saving shift change:', error);
   } finally {
     isLoading.value = false;
   }
 }
 
 const generateShifts = async () => {
-  if (!startDate.value || !endDate.value) {
-    message.value = '開始日と終了日を選択してください。';
+  if (!startDate.value || !endDate.value || !selectedDepartment.value) {
+    message.value = '部署、開始日、終了日を選択してください。';
     return;
   }
   isLoading.value = true;
@@ -217,6 +258,7 @@ const generateShifts = async () => {
   
   try {
     const response = await axios.post('http://127.0.0.1:8000/api/v1/generate-shifts/', {
+      department_id: selectedDepartment.value,
       start_date: startDate.value,
       end_date: endDate.value,
     });
@@ -241,9 +283,14 @@ const generateShifts = async () => {
 }
 
 const fetchScheduleData = async (shouldFetchAssignments = true) => {
+  if (!selectedDepartment.value) return;
   try {
     const response = await axios.get('http://127.0.0.1:8000/api/v1/schedule-data/', {
-      params: { start_date: startDate.value, end_date: endDate.value },
+      params: { 
+        department_id: selectedDepartment.value,
+        start_date: startDate.value, 
+        end_date: endDate.value 
+      },
     });
     if (shouldFetchAssignments) {
         assignments.value = response.data.assignments;
@@ -258,12 +305,26 @@ const fetchScheduleData = async (shouldFetchAssignments = true) => {
     console.error('スケジュールデータの読み込みに失敗しました:', error);
   }
 }
+
+const toggleCellSelection = (memberId, date) => {
+  const key = `${memberId}-${date}`;
+  selectedCells.value[key] = !selectedCells.value[key];
+};
+
+const isCellSelected = (memberId, date) => {
+  const key = `${memberId}-${date}`;
+  return selectedCells.value[key];
+};
 </script>
 
 <template>
   <div>
     <h1>シフト自動生成</h1>
     <div>
+      <label for="department">部署:</label>
+      <select id="department" v-model="selectedDepartment">
+        <option v-for="dept in departments" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
+      </select>
       <label for="start">開始日:</label>
       <input type="date" id="start" v-model="startDate" />
       <label for="end">終了日:</label>
@@ -298,10 +359,11 @@ const fetchScheduleData = async (shouldFetchAssignments = true) => {
               </div>
             </td>
             <td v-for="header in dateHeaders" :key="header.date" 
-                :class="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].type : 'empty'"
-                :title="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].reason : ''">
+                :class="[scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].type : 'empty', { 'selected-cell': isCellSelected(member.id, header.date) }]"
+                :title="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].reason : ''"
+                @click="toggleCellSelection(member.id, header.date)">
               <select 
-                v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'infeasible' && scheduleGrid[member.id][header.date].type !== 'leave' && scheduleGrid[member.id][header.date].type !== 'fixed'" 
+                v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'leave' && scheduleGrid[member.id][header.date].type !== 'fixed'" 
                 :value="scheduleGrid[member.id][header.date].patternId"
                 @change="handleShiftChange(member.id, header.date, $event)"
               >
@@ -375,10 +437,22 @@ td select {
 td.leave { background-color: #fce4e4; color: #9b2c2c; font-weight: bold; padding: 8px 4px; }
 td.other { background-color: #dbeafe; color: #1e40af; }
 td.assigned { background-color: #e6fffa; }
-td.available { background-color: #f7fafc; }
+td.available { background-color: #edf2f7; }
 td.empty { background-color: #edf2f7; color: #a0aec0; }
-td.infeasible { background-color: #fff5e6; color: #b7791f; font-weight: bold; font-size: 0.9em; padding: 8px 4px;}
+td.infeasible { background-color: #edf2f7; color: #b7791f; font-weight: bold; font-size: 0.9em; padding: 8px 4px;}
 td.fixed { background-color: #cfe2f3; color: #000; font-weight: bold; padding: 8px 4px; }
+
+.selected-cell {
+  border: 2px solid #007bff !important; /* Blue border for selected cells */
+  box-shadow: 0 0 5px rgba(0, 123, 255, 0.5); /* Subtle glow */
+}
+
+/* Ensure select element doesn't hide the border */
+td.selected-cell select {
+  border: none !important;
+  box-shadow: none !important;
+}
+
 .stats {
   font-size: 0.8em;
   color: #555;

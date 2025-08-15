@@ -5,10 +5,12 @@ from .views import (
     ScheduleDataView, 
     ShiftPatternListView,
     ManualAssignmentView,
-    OtherAssignmentView
+    OtherAssignmentView,
+    DepartmentListView
 )
 
 urlpatterns = [
+    path('departments/', DepartmentListView.as_view(), name='department-list'),
     path('members/', MemberListView.as_view(), name='member-list'),
     path('shift-patterns/', ShiftPatternListView.as_view(), name='shift-pattern-list'),
     path('schedule-data/', ScheduleDataView.as_view(), name='schedule-data'),

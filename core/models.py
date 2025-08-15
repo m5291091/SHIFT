@@ -1,5 +1,15 @@
 from django.db import models
 
+class Department(models.Model):
+    name = models.CharField("部門名", max_length=100, unique=True)
+
+    class Meta:
+        verbose_name = "部門"
+        verbose_name_plural = "部門"
+
+    def __str__(self):
+        return self.name
+
 class MemberShiftPatternPreference(models.Model):
     member = models.ForeignKey('Member', on_delete=models.CASCADE, verbose_name="従業員")
     shift_pattern = models.ForeignKey('ShiftPattern', on_delete=models.CASCADE, verbose_name="シフトパターン")
@@ -20,6 +30,7 @@ class Member(models.Model):
         ('salaried', '固定給'),
     ]
     
+    department = models.ForeignKey(Department, on_delete=models.PROTECT, verbose_name="所属部門")
     name = models.CharField("氏名", max_length=100)
     employee_type = models.CharField("雇用形態", max_length=10, choices=EMPLOYEE_TYPE_CHOICES, default='hourly')
     hourly_wage = models.IntegerField("時給", null=True, blank=True, help_text="時給制の場合のみ入力")
@@ -61,9 +72,10 @@ class Member(models.Model):
         verbose_name_plural = "従業員"
 
     def __str__(self):
-        return self.name
+        return f"{self.department.name} - {self.name}"
 
 class ShiftPattern(models.Model):
+    department = models.ForeignKey(Department, on_delete=models.CASCADE, verbose_name="部門")
     pattern_name = models.CharField("パターン名", max_length=100)
     start_time = models.TimeField("開始時刻")
     end_time = models.TimeField("終了時刻")
@@ -77,7 +89,7 @@ class ShiftPattern(models.Model):
         verbose_name_plural = "シフトパターン"
 
     def __str__(self):
-        return f"{self.pattern_name} ({self.start_time.strftime('%H:%M')} - {self.end_time.strftime('%H:%M')})"
+        return f"{self.department.name} / {self.pattern_name} ({self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')})"
 
 class DayGroup(models.Model):
     group_name = models.CharField("グループ名", max_length=100, unique=True)
@@ -97,6 +109,7 @@ class DayGroup(models.Model):
         return self.group_name
 
 class TimeSlotRequirement(models.Model):
+    department = models.ForeignKey(Department, on_delete=models.CASCADE, verbose_name="部門")
     day_group = models.ForeignKey(DayGroup, on_delete=models.CASCADE, verbose_name="曜日グループ")
     start_time = models.TimeField("開始時刻")
     end_time = models.TimeField("終了時刻")
@@ -108,7 +121,7 @@ class TimeSlotRequirement(models.Model):
         verbose_name_plural = "時間帯別必要人数"
 
     def __str__(self):
-        return f"{self.day_group.group_name} ({self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')}): {self.min_headcount}人"
+        return f"{self.department.name} / {self.day_group.group_name} ({self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')}): {self.min_headcount}人"
 
 class MemberAvailability(models.Model):
     DAY_CHOICES = [
@@ -223,6 +236,7 @@ class FixedAssignment(models.Model):
         return f"{self.shift_date} {self.member.name} ({self.shift_pattern.pattern_name})"
 
 class SpecificDateRequirement(models.Model):
+    department = models.ForeignKey(Department, on_delete=models.CASCADE, verbose_name="部門")
     date = models.DateField("日付")
     shift_pattern = models.ForeignKey(ShiftPattern, on_delete=models.CASCADE, verbose_name="シフトパターン")
     min_headcount = models.IntegerField("最低必要人数")
@@ -234,9 +248,10 @@ class SpecificDateRequirement(models.Model):
         unique_together = ('date', 'shift_pattern')
 
     def __str__(self):
-        return f"{self.date} ({self.shift_pattern.pattern_name}): {self.min_headcount}人"
+        return f"{self.department.name} / {self.date} ({self.shift_pattern.pattern_name}): {self.min_headcount}人"
 
 class SpecificTimeSlotRequirement(models.Model):
+    department = models.ForeignKey(Department, on_delete=models.CASCADE, verbose_name="部門")
     date = models.DateField("日付")
     start_time = models.TimeField("開始時刻")
     end_time = models.TimeField("終了時刻")
@@ -249,4 +264,4 @@ class SpecificTimeSlotRequirement(models.Model):
         ordering = ['date', 'start_time']
 
     def __str__(self):
-        return f"{self.date} ({self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')}): {self.min_headcount}人"
+        return f"{self.department.name} / {self.date} ({self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')}): {self.min_headcount}人"
