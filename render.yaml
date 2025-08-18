@@ -2,6 +2,7 @@ services:
   - type: web
     name: shift-app-backend
     env: python
+    plan: free
     buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput"
     startCommand: "gunicorn config.wsgi:application"
     envVars:
