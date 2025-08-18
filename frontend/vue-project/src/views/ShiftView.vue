@@ -327,6 +327,39 @@ const isCellSelected = (memberId, date) => {
   return selectedCells.value[key];
 };
 
+const toggleDaySelection = (date) => {
+  const dayShifts = [];
+  members.value.forEach(member => {
+    const cell = scheduleGrid.value[member.id]?.[date];
+    if (cell && (cell.type === 'assigned' || cell.type === 'fixed')) {
+      dayShifts.push({ memberId: member.id, date });
+    }
+  });
+
+  const allSelected = dayShifts.every(shift => isCellSelected(shift.memberId, shift.date));
+
+  dayShifts.forEach(shift => {
+    const key = `${shift.memberId}_${shift.date}`;
+    selectedCells.value[key] = !allSelected;
+  });
+};
+
+const isDaySelected = (date) => {
+  const dayShifts = [];
+  members.value.forEach(member => {
+    const cell = scheduleGrid.value[member.id]?.[date];
+    if (cell && (cell.type === 'assigned' || cell.type === 'fixed')) {
+      dayShifts.push({ memberId: member.id, date });
+    }
+  });
+
+  if (dayShifts.length === 0) {
+    return false;
+  }
+
+  return dayShifts.every(shift => isCellSelected(shift.memberId, shift.date));
+};
+
 const confirmSelectedShifts = async () => {
   const assignmentsToFix = [];
   for (const key in selectedCells.value) {
@@ -421,8 +454,15 @@ const deleteShift = async (memberId, date) => {
           <tr>
             <th class="sticky-col">従業員 (休日 / 給与)</th>
             <th v-for="header in dateHeaders" :key="header.date">
-              <div>{{ header.date.slice(5).replace('-', '/') }}</div>
-              <div>({{ header.weekday }})</div>
+              <div>
+                <input 
+                  type="checkbox"
+                  :checked="isDaySelected(header.date)"
+                  @change="toggleDaySelection(header.date)"
+                  class="header-checkbox"
+                />
+                {{ header.date.slice(5).replace('-', '/') }} ({{ header.weekday }})
+              </div>
             </th>
           </tr>
         </thead>
@@ -528,6 +568,9 @@ th {
 }
 .delete-shift-btn:hover {
   color: #000;
+}
+.header-checkbox {
+  margin-right: 5px;
 }
 td select {
   width: 100%;
