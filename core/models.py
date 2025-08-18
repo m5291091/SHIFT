@@ -45,6 +45,7 @@ class Member(models.Model):
     max_hours_per_day = models.IntegerField("1日の最大労働時間", default=8)
     min_days_off_per_week = models.IntegerField("週の最低休日数", default=2)
     min_monthly_days_off = models.IntegerField("月の最低公休日数", default=8)
+    max_consecutive_work_days = models.PositiveIntegerField("連続勤務数上限", default=5, null=True, blank=True, help_text="連続して勤務できる日数の上限")
     enforce_exact_holidays = models.BooleanField("休日数を固定する", default=False, help_text="オンの場合、月の公休日数が設定通りに固定されます")
     
     priority_score = models.IntegerField("割り当て優先度", default=10)
@@ -234,6 +235,20 @@ class FixedAssignment(models.Model):
 
     def __str__(self):
         return f"{self.shift_date} {self.member.name} ({self.shift_pattern.pattern_name})"
+
+
+class DesignatedHoliday(models.Model):
+    member = models.ForeignKey(Member, on_delete=models.CASCADE, verbose_name="従業員")
+    date = models.DateField("日付")
+
+    class Meta:
+        verbose_name = "指定休日"
+        verbose_name_plural = "指定休日"
+        unique_together = ('member', 'date')
+
+    def __str__(self):
+        return f"{self.member.name} - {self.date}"
+
 
 class SpecificDateRequirement(models.Model):
     department = models.ForeignKey(Department, on_delete=models.CASCADE, verbose_name="部門")

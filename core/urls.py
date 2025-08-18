@@ -8,7 +8,8 @@ from .views import (
     OtherAssignmentView,
     DepartmentListView,
     BulkFixedAssignmentView,
-    FixedAssignmentView
+    FixedAssignmentView,
+    DesignatedHolidayView
 )
 
 urlpatterns = [
@@ -21,4 +22,5 @@ urlpatterns = [
     path('other-assignment/', OtherAssignmentView.as_view(), name='other-assignment'),
     path('bulk-fixed-assignments/', BulkFixedAssignmentView.as_view(), name='bulk-fixed-assignments'),
     path('fixed-assignment/', FixedAssignmentView.as_view(), name='fixed-assignment'),
+    path('designated-holiday/', DesignatedHolidayView.as_view(), name='designated-holiday'),
 ]

@@ -6,7 +6,7 @@ from .models import (
     Member, Skill, DayGroup, MemberSkill, ShiftPattern, MemberAvailability,
     LeaveRequest, TimeSlotRequirement, RelationshipGroup, GroupMember, Assignment, OtherAssignment,
     FixedAssignment, SpecificDateRequirement, SpecificTimeSlotRequirement, MemberShiftPatternPreference,
-    Department
+    Department, DesignatedHoliday
 )
 
 @admin.register(Department)
@@ -20,15 +20,15 @@ class MemberShiftPatternPreferenceInline(admin.TabularInline):
 class MemberAdmin(admin.ModelAdmin):
     list_display = (
         'name', 'department', 'sort_order', 'employee_type', 'min_monthly_days_off',
-        'max_hours_per_day', 'enforce_exact_holidays'
+        'max_consecutive_work_days', 'max_hours_per_day', 'enforce_exact_holidays'
     )
     list_filter = ('department', 'employee_type',)
-    list_editable = ('sort_order',)
+    list_editable = ('sort_order', 'max_consecutive_work_days',)
     fieldsets = (
         (None, {'fields': ('name', 'department', 'priority_score', 'sort_order')}),
         ('給与形態', {'fields': ('employee_type', 'hourly_wage', 'monthly_salary')}),
         ('給与目標', {'fields': ('min_monthly_salary', 'max_monthly_salary', 'max_annual_salary', 'current_annual_salary', 'salary_year_start_month')}),
-        ('労働時間・休日制約', {'fields': ('max_hours_per_day', 'min_days_off_per_week', 'min_monthly_days_off', 'enforce_exact_holidays')}),
+        ('労働時間・休日制約', {'fields': ('max_hours_per_day', 'min_days_off_per_week', 'min_monthly_days_off', 'max_consecutive_work_days', 'enforce_exact_holidays')}),
         ('勤務可能な曜日', {'fields': ('allowed_day_groups',)}),
     )
     search_fields = ('name',)
@@ -219,6 +219,11 @@ class SpecificTimeSlotRequirementAdmin(admin.ModelAdmin):
     list_display = ('date', 'department', 'start_time', 'end_time', 'min_headcount', 'max_headcount')
     list_filter = ('date', 'department',)
     ordering = ('-date', 'start_time')
+
+@admin.register(DesignatedHoliday)
+class DesignatedHolidayAdmin(admin.ModelAdmin):
+    list_display = ('member', 'date')
+    list_filter = ('member__department', 'member')
 
 # --- モデルの登録 ---
 admin.site.register(Member, MemberAdmin)

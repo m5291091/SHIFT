@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import (
-    Member, Assignment, ShiftPattern, MemberAvailability, OtherAssignment, FixedAssignment, Department
+    Member, Assignment, ShiftPattern, MemberAvailability, OtherAssignment, FixedAssignment, Department, DesignatedHoliday
 )
 
 class DepartmentSerializer(serializers.ModelSerializer):
@@ -17,7 +17,7 @@ class MemberSerializer(serializers.ModelSerializer):
             'id', 'name', 'department', 'employee_type', 'hourly_wage', 'monthly_salary', 
             'min_monthly_salary', 'max_monthly_salary', 'max_annual_salary', 
             'current_annual_salary', 'salary_year_start_month', 'max_hours_per_day', 
-            'min_days_off_per_week', 'min_monthly_days_off', 'enforce_exact_holidays',
+            'min_days_off_per_week', 'min_monthly_days_off', 'max_consecutive_work_days', 'enforce_exact_holidays',
             'priority_score', 'sort_order', 
             'shift_preferences'
         ]
@@ -56,4 +56,9 @@ class ShiftPatternSerializer(serializers.ModelSerializer):
 class OtherAssignmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = OtherAssignment
+        fields = '__all__'
+
+class DesignatedHolidaySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DesignatedHoliday
         fields = '__all__'

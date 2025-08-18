@@ -17,6 +17,7 @@ const shiftPatterns = ref([])
 const infeasibleDays = ref({})
 const earnings = ref({})
 const otherAssignments = ref([])
+const designatedHolidays = ref([]) // New
 const selectedCells = ref({}) // New reactive property for multi-selection
 
 // Descriptions for solver settings
@@ -177,7 +178,7 @@ const scheduleGrid = computed(() => {
       if (infeasibleDays.value[header.date]) {
         // Only apply infeasible type if it's an empty or available cell
         if (cell.type === 'empty' || cell.type === 'available') {
-          cell = { text: '\\', type: 'infeasible', patternId: null, reason: infeasibleDays.value[header.date] };
+          cell = { text: '', type: 'infeasible', patternId: null, reason: infeasibleDays.value[header.date] };
         }
       }
       grid[member.id][header.date] = cell;
@@ -185,7 +186,12 @@ const scheduleGrid = computed(() => {
   })
   leaveRequests.value.forEach(req => {
     if (grid[req.member_id]) {
-      grid[req.member_id][req.leave_date] = { text: '✖︎', type: 'leave', patternId: null }
+      grid[req.member_id][req.leave_date] = { text: '希望休', type: 'leave', patternId: null }
+    }
+  })
+  designatedHolidays.value.forEach(holiday => {
+    if (grid[holiday.member]) {
+      grid[holiday.member][holiday.date] = { text: '指定休日', type: 'designated-holiday', patternId: null }
     }
   })
   assignments.value.forEach(a => {
@@ -224,7 +230,6 @@ const handleShiftChange = async (memberId, date, event) => {
   message.value = '手動変更を保存中...';
   
   try {
-    console.log('Attempting to save shift change:', { memberId, date, selectedValue });
     if (selectedValue === 'other') {
       const activityName = prompt('業務内容を入力してください（例：研修）');
       if (activityName) {
@@ -232,8 +237,13 @@ const handleShiftChange = async (memberId, date, event) => {
           member_id: memberId, shift_date: date, activity_name: activityName,
         });
       }
+    } else if (selectedValue === 'designated-holiday') {
+      await axios.post('http://127.0.0.1:8000/api/v1/designated-holiday/', {
+        member_id: memberId,
+        date: date,
+      });
     } else {
-      const patternId = selectedValue === 'delete' ? null : selectedValue;
+      const patternId = selectedValue === '' ? null : selectedValue;
       await axios.post('http://127.0.0.1:8000/api/v1/fixed-assignment/', {
         member_id: memberId, shift_date: date, pattern_id: patternId,
       });
@@ -300,7 +310,8 @@ const fetchScheduleData = async (shouldFetchAssignments = true) => {
     availabilities.value = response.data.availabilities;
     earnings.value = response.data.earnings;
     otherAssignments.value = response.data.other_assignments;
-    fixedAssignments.value = response.data.fixed_assignments; // 追加
+    fixedAssignments.value = response.data.fixed_assignments;
+    designatedHolidays.value = response.data.designated_holidays;
   } catch (error) {
     console.error('スケジュールデータの読み込みに失敗しました:', error);
   }
@@ -361,6 +372,23 @@ const confirmSelectedShifts = async () => {
     isLoading.value = false;
   }
 };
+
+const deleteShift = async (memberId, date) => {
+  isLoading.value = true;
+  message.value = 'シフトを削除中...';
+  try {
+    await axios.post('http://127.0.0.1:8000/api/v1/fixed-assignment/', {
+      member_id: memberId, shift_date: date, pattern_id: null,
+    });
+    message.value = 'シフトが削除されました。';
+    await fetchScheduleData(true);
+  } catch (error) {
+    message.value = 'シフトの削除に失敗しました。';
+    console.error('Error deleting shift:', error);
+  } finally {
+    isLoading.value = false;
+  }
+};
 </script>
 
 <template>
@@ -407,7 +435,7 @@ const confirmSelectedShifts = async () => {
                 <span v-if="earnings[member.id]">(¥{{ earnings[member.id].toLocaleString() }})</span>
               </div>
             </td>
-            <td v-for="header in dateHeaders" :key="header.date" 
+            <td v-for="header in dateHeaders" :key="`${member.id}-${header.date}`" 
                 :class="[scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].type : 'empty', { 'selected-cell': isCellSelected(member.id, header.date) }]"
                 :title="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].reason : ''">
               
@@ -419,17 +447,24 @@ const confirmSelectedShifts = async () => {
                 class="shift-checkbox"
               />
 
+              <button 
+                v-if="scheduleGrid[member.id]?.[header.date]?.type === 'assigned' || scheduleGrid[member.id]?.[header.date]?.type === 'fixed'"
+                @click="deleteShift(member.id, header.date)"
+                class="delete-shift-btn"
+              >✖️</button>
+
               <select 
-                v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'leave' && scheduleGrid[member.id][header.date].type !== 'fixed'" 
+                v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'leave' && scheduleGrid[member.id][header.date].type !== 'designated-holiday'" 
                 :value="scheduleGrid[member.id][header.date].patternId"
                 @change="handleShiftChange(member.id, header.date, $event)"
               >
                 <option :value="scheduleGrid[member.id][header.date].patternId" selected disabled>{{ scheduleGrid[member.id][header.date].text }}</option>
-                <option v-if="scheduleGrid[member.id][header.date].type !== 'empty' && scheduleGrid[member.id][header.date].type !== 'available'" value="delete">（削除）</option>
+                <option v-if="scheduleGrid[member.id]?.[header.date]?.patternId" value="">（削除）</option>
                 <option v-for="pattern in getAssignablePatternsForMember(member)" :key="pattern.id" :value="pattern.id">
                   {{ pattern.pattern_name }}
                 </option>
                 <option value="other">その他...</option>
+                <option value="designated-holiday">指定休日</option>
               </select>
               <span v-else-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date]">{{ scheduleGrid[member.id][header.date].text }}</span>
             </td>
@@ -478,6 +513,22 @@ th {
   left: 5px;
   z-index: 2;
 }
+.delete-shift-btn {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  z-index: 3;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #999;
+  font-size: 14px;
+  padding: 2px;
+  line-height: 1;
+}
+.delete-shift-btn:hover {
+  color: #000;
+}
 td select {
   width: 100%;
   height: 100%;
@@ -513,6 +564,7 @@ td.available { background-color: #edf2f7; }
 td.empty { background-color: #edf2f7; color: #a0aec0; }
 td.infeasible { background-color: #edf2f7; color: #b7791f; font-weight: bold; font-size: 0.9em; }
 td.fixed { background-color: #cfe2f3; color: #000; font-weight: bold; }
+.designated-holiday { background-color: #e8daff; color: #581c87; font-weight: bold; }
 
 .selected-cell {
   border: 2px solid #007bff !important; /* Blue border for selected cells */

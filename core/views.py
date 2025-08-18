@@ -4,8 +4,8 @@ from rest_framework.response import Response
 from datetime import date, datetime, time, timedelta
 from collections import defaultdict
 
-from .models import Member, Assignment, LeaveRequest, MemberAvailability, ShiftPattern, OtherAssignment, TimeSlotRequirement, FixedAssignment, Department
-from .serializers import MemberSerializer, AssignmentSerializer, MemberAvailabilitySerializer, ShiftPatternSerializer, OtherAssignmentSerializer, FixedAssignmentSerializer, DepartmentSerializer
+from .models import Member, Assignment, LeaveRequest, MemberAvailability, ShiftPattern, OtherAssignment, TimeSlotRequirement, FixedAssignment, Department, DesignatedHoliday
+from .serializers import MemberSerializer, AssignmentSerializer, MemberAvailabilitySerializer, ShiftPatternSerializer, OtherAssignmentSerializer, FixedAssignmentSerializer, DepartmentSerializer, DesignatedHolidaySerializer
 from .solver import generate_schedule
 
 class DepartmentListView(generics.ListAPIView):
@@ -46,7 +46,7 @@ class ScheduleDataView(APIView):
                 'members': member_serializer.data,
                 'assignments': [], 'leave_requests': [], 'availabilities': [],
                 'other_assignments': [], 'earnings': {},
-                'fixed_assignments': [],
+                'fixed_assignments': [], 'designated_holidays': [],
             })
 
         start_date = date.fromisoformat(start_date_str)
@@ -82,6 +82,12 @@ class ScheduleDataView(APIView):
         )
         other_serializer = OtherAssignmentSerializer(other_assignments, many=True)
 
+        designated_holidays = DesignatedHoliday.objects.filter(
+            date__range=[start_date, end_date],
+            member__department_id=department_id
+        )
+        designated_holiday_serializer = DesignatedHolidaySerializer(designated_holidays, many=True)
+
         earnings_map = defaultdict(float)
         premium_start, premium_end = time(22, 0), time(5, 0)
         for assign in assignments:
@@ -110,6 +116,7 @@ class ScheduleDataView(APIView):
             'members': member_serializer.data,
             'availabilities': availability_serializer.data,
             'other_assignments': other_serializer.data,
+            'designated_holidays': designated_holiday_serializer.data,
             'earnings': {k: round(v) for k, v in earnings_map.items()},
         })
 
@@ -212,22 +219,30 @@ class FixedAssignmentView(APIView):
             
         return Response(status=status.HTTP_200_OK)
 
-class FixedAssignmentView(APIView):
+
+class DesignatedHolidayView(APIView):
     def post(self, request, *args, **kwargs):
         member_id = request.data.get('member_id')
-        shift_date = request.data.get('shift_date')
-        pattern_id = request.data.get('pattern_id')
-        
-        if not all([member_id, shift_date]):
-            return Response({'error': 'member_id and shift_date are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        if pattern_id:
-            FixedAssignment.objects.update_or_create(
-                member_id=member_id,
-                shift_date=shift_date,
-                defaults={'shift_pattern_id': pattern_id}
-            )
+        date = request.data.get('date')
+
+        if not all([member_id, date]):
+            return Response({'error': 'member_id and date are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Toggle logic: if it exists, delete it. If not, create it.
+        holiday, created = DesignatedHoliday.objects.get_or_create(
+            member_id=member_id,
+            date=date
+        )
+
+        if not created:
+            # it existed, so we delete it
+            holiday.delete()
+            action = "deleted"
         else:
-            FixedAssignment.objects.filter(member_id=member_id, shift_date=shift_date).delete()
+            # it was created, so clear any other assignments for that day
+            Assignment.objects.filter(member_id=member_id, shift_date=date).delete()
+            FixedAssignment.objects.filter(member_id=member_id, shift_date=date).delete()
+            OtherAssignment.objects.filter(member_id=member_id, shift_date=date).delete()
+            action = "created"
             
-        return Response(status=status.HTTP_200_OK)
+        return Response({'status': f'holiday {action}'}, status=status.HTTP_200_OK)

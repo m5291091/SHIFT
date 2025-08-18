@@ -2,7 +2,7 @@ from ortools.sat.python import cp_model
 from .models import (
     Member, ShiftPattern, LeaveRequest, TimeSlotRequirement, Assignment, DayGroup, 
     RelationshipGroup, OtherAssignment, FixedAssignment, SpecificDateRequirement, 
-    SpecificTimeSlotRequirement, MemberShiftPatternPreference
+    SpecificTimeSlotRequirement, MemberShiftPatternPreference, DesignatedHoliday
 )
 from .serializers import AssignmentSerializer
 from datetime import date, timedelta, datetime, time
@@ -19,6 +19,7 @@ def generate_schedule(department_id, start_date_str, end_date_str):
     all_patterns = ShiftPattern.objects.filter(department_id=department_id)
     fixed_assignments = FixedAssignment.objects.filter(shift_date__range=[start_date, end_date], member__department_id=department_id).select_related('shift_pattern', 'member')
     other_assignments = OtherAssignment.objects.filter(shift_date__range=[start_date, end_date], member__department_id=department_id).select_related('member')
+    designated_holidays = DesignatedHoliday.objects.filter(date__range=[start_date, end_date], member__department_id=department_id)
     specific_date_reqs = SpecificDateRequirement.objects.filter(date__range=[start_date, end_date], department_id=department_id)
     specific_timeslot_reqs = SpecificTimeSlotRequirement.objects.filter(date__range=[start_date, end_date], department_id=department_id)
     prefs = MemberShiftPatternPreference.objects.filter(member__department_id=department_id)
@@ -70,6 +71,7 @@ def generate_schedule(department_id, start_date_str, end_date_str):
     unavailable_day_violation_vars = {}
     salary_shortfall_vars = {}
     salary_surplus_vars = {}
+    consecutive_violation_vars = {}
 
     for m in all_members:
         for d in days:
@@ -82,6 +84,7 @@ def generate_schedule(department_id, start_date_str, end_date_str):
     HEADCOUNT_PENALTY_COST = 10000000
     HOLIDAY_VIOLATION_PENALTY = 50000
     INCOMPATIBLE_PENALTY = 60000
+    CONSECUTIVE_WORK_VIOLATION_PENALTY = 45000
     SALARY_TOO_LOW_PENALTY = 40000
     SALARY_TOO_HIGH_PENALTY = 30000
     DIFFICULTY_BONUS_WEIGHT = 10000 
@@ -272,6 +275,11 @@ def generate_schedule(department_id, start_date_str, end_date_str):
         for p in all_patterns:
             if (req.member.id, req.leave_date, p.id) in shifts:
                 model.Add(shifts[(req.member.id, req.leave_date, p.id)] == 0)
+
+    for dh in designated_holidays:
+        for p in all_patterns:
+            if (dh.member.id, dh.date, p.id) in shifts:
+                model.Add(shifts[(dh.member.id, dh.date, p.id)] == 0)
     
     MIN_REST_MINUTES = 8 * 60
     for m in all_members:
@@ -311,6 +319,15 @@ def generate_schedule(department_id, start_date_str, end_date_str):
             work_day_surplus_vars[m.id] = work_day_surplus
             model.Add(total_work_days_sum <= max_work_days + work_day_surplus)
             total_penalty_terms.append(work_day_surplus * HOLIDAY_VIOLATION_PENALTY)
+
+        # Consecutive work days constraint
+        if m.max_consecutive_work_days is not None and m.max_consecutive_work_days > 0:
+            for i in range(len(days) - m.max_consecutive_work_days):
+                window = work_days_in_period[i:i + m.max_consecutive_work_days + 1]
+                surplus = model.NewIntVar(0, 1, f'consecutive_surplus_m{m.id}_d{i}')
+                model.Add(sum(window) <= m.max_consecutive_work_days + surplus)
+                total_penalty_terms.append(surplus * CONSECUTIVE_WORK_VIOLATION_PENALTY)
+                consecutive_violation_vars[(m.id, days[i])] = surplus
 
         # Salary-based penalties
         if m.employee_type == 'hourly' and m.hourly_wage is not None:
@@ -397,6 +414,15 @@ def generate_schedule(department_id, start_date_str, end_date_str):
             if solver.Value(var) > 0:
                 member_name = next((m.name for m in all_members if m.id == member_id), f'Member {member_id}')
                 infeasible_days_info[str(start_date)].append(f'{member_name} の給与が目標最高額を {solver.Value(var)} 円上回りました')
+
+        # 6. Consecutive Work Violations
+        for (member_id, start_day_of_window), var in consecutive_violation_vars.items():
+            if solver.Value(var) > 0:
+                member = next((m for m in all_members if m.id == member_id), None)
+                if member:
+                    infeasible_days_info[str(start_day_of_window)].append(
+                        f'{member.name} が連続勤務数上限 ({member.max_consecutive_work_days}日) を超過しました。'
+                    )
 
         serializer = AssignmentSerializer(new_assignments, many=True)
         return {'success': True, 'infeasible_days': dict(infeasible_days_info), 'assignments': serializer.data}
