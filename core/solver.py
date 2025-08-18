@@ -17,10 +17,26 @@ def generate_schedule(department_id, start_date_str, end_date_str):
 
     # Fetch solver settings for the department
     try:
-        settings = SolverSettings.objects.get(department_id=department_id)
+        settings = SolverSettings.objects.get(department_id=department_id, is_default=True)
     except SolverSettings.DoesNotExist:
-        # If settings don't exist for this department, create default ones
-        settings = SolverSettings.objects.create(department_id=department_id)
+        # If no default settings exist for this department, create one and set it as default
+        # Also, ensure any existing settings are not marked as default
+        SolverSettings.objects.filter(department_id=department_id).update(is_default=False)
+        settings = SolverSettings.objects.create(
+            department_id=department_id,
+            name="Default Pattern", # Assign a default name
+            is_default=True
+        )
+    except SolverSettings.MultipleObjectsReturned:
+        # This should ideally not happen if is_default is properly managed.
+        # If it does, pick the first one and ensure only one is default.
+        default_settings = SolverSettings.objects.filter(department_id=department_id, is_default=True)
+        if default_settings.count() > 1:
+            # Set all but the first one to not default
+            for s in default_settings[1:]:
+                s.is_default = False
+                s.save()
+        settings = default_settings.first()
     days = [start_date + timedelta(days=i) for i in range((end_date - start_date).days + 1)]
 
     all_members = Member.objects.filter(department_id=department_id).prefetch_related('shift_preferences', 'allowed_day_groups')

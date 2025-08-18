@@ -1,0 +1,12 @@
+{% extends "admin/index.html" %}
+{% load i18n static %}
+
+{% block content %}
+{{ block.super }}
+<div class="app-shift-generator module">
+    <div class="module-body">
+        <h3 class="module-title">{% translate 'Shift Generation' %}</h3>
+        <p><a href="{% url 'shift_generator_admin' %}" class="button">{% translate 'Go to Shift Generator' %}</a></p>
+    </div>
+</div>
+{% endblock %}

@@ -67,7 +67,9 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='SolverSettings',
             fields=[
-                ('department', models.OneToOneField(help_text='この設定が適用される部門', on_delete=django.db.models.deletion.CASCADE, primary_key=True, serialize=False, to='core.department', verbose_name='部門')),
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('name', models.CharField(default='Default Pattern', max_length=100, verbose_name='パターン名')),
+                ('is_default', models.BooleanField(default=False, verbose_name='デフォルト設定')),
                 ('headcount_penalty_cost', models.IntegerField(default=10000000, verbose_name='人数不足ペナルティ')),
                 ('holiday_violation_penalty', models.IntegerField(default=50000, verbose_name='休日制約違反ペナルティ')),
                 ('incompatible_penalty', models.IntegerField(default=60000, verbose_name='相性違反ペナルティ')),
@@ -79,6 +81,7 @@ class Migration(migrations.Migration):
                 ('pairing_bonus', models.IntegerField(default=5000, verbose_name='ペアリングボーナス')),
                 ('shift_preference_bonus', models.IntegerField(default=100, verbose_name='シフト希望ボーナス')),
                 ('unavailable_day_penalty', models.IntegerField(default=70000, verbose_name='勤務不可曜日ペナルティ')),
+                ('department', models.ForeignKey(help_text='この設定が適用される部門', on_delete=django.db.models.deletion.CASCADE, to='core.department', verbose_name='部門')),
             ],
             options={
                 'verbose_name': 'ソルバー設定',

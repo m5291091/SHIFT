@@ -297,13 +297,14 @@ class SpecificTimeSlotRequirement(models.Model):
 
 
 class SolverSettings(models.Model):
-    department = models.OneToOneField(
+    department = models.ForeignKey(
         Department,
         on_delete=models.CASCADE,
-        primary_key=True,
         verbose_name="部門",
         help_text="この設定が適用される部門"
     )
+    name = models.CharField("パターン名", max_length=100, default="Default Pattern")
+    is_default = models.BooleanField("デフォルト設定", default=False)
     headcount_penalty_cost = models.IntegerField("人数不足ペナルティ", default=10000000)
     holiday_violation_penalty = models.IntegerField("休日制約違反ペナルティ", default=50000)
     incompatible_penalty = models.IntegerField("相性違反ペナルティ", default=60000)

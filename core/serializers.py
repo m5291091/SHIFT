@@ -67,7 +67,7 @@ class DesignatedHolidaySerializer(serializers.ModelSerializer):
 class SolverSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = SolverSettings
-        exclude = ('department',)
+        fields = '__all__'
 
 
 class PaidLeaveSerializer(serializers.ModelSerializer):

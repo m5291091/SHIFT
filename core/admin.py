@@ -6,7 +6,7 @@ from .models import (
     Member, Skill, DayGroup, MemberSkill, ShiftPattern, MemberAvailability,
     LeaveRequest, TimeSlotRequirement, RelationshipGroup, GroupMember, Assignment, OtherAssignment,
     FixedAssignment, SpecificDateRequirement, SpecificTimeSlotRequirement, MemberShiftPatternPreference,
-    Department, DesignatedHoliday, PaidLeave # Added PaidLeave
+    Department, DesignatedHoliday, PaidLeave, SolverSettings # Added PaidLeave, SolverSettings
 )
 
 @admin.register(Department)
@@ -224,7 +224,6 @@ class SpecificTimeSlotRequirementAdmin(admin.ModelAdmin):
 class DesignatedHolidayAdmin(admin.ModelAdmin):
     list_display = ('member', 'date')
     list_filter = ('member__department', 'member',)
-
 
 @admin.register(PaidLeave)
 class PaidLeaveAdmin(admin.ModelAdmin):

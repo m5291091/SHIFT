@@ -22,7 +22,10 @@ const otherAssignments = ref([])
 const designatedHolidays = ref([]) // New
 const paidLeaves = ref([]) // New
 const selectedCells = ref({}) // New reactive property for multi-selection
-const solverSettings = ref({}) // New reactive property for solver settings
+const solverSettings = ref({}) // Current solver settings being displayed/edited
+const solverPatterns = ref([]) // All saved solver patterns for the department
+const selectedSolverPatternId = ref(null) // ID of the currently selected pattern in the dropdown
+const newPatternName = ref('') // For saving a new pattern
 
 // Modal state
 const isOtherAssignmentModalVisible = ref(false)
@@ -65,9 +68,142 @@ watch(selectedDepartment, async (newDepartmentId) => {
       console.error('シフトパターンの取得に失敗しました:', error)
     }
     await fetchScheduleData(true)
-    await fetchSolverSettings(newDepartmentId) // Call new function
+    await fetchAllSolverPatterns(newDepartmentId) // Fetch all patterns for the department
   }
 })
+
+const fetchAllSolverPatterns = async (departmentId) => {
+  try {
+    const response = await axios.get(`http://127.0.0.1:8000/api/v1/solver-settings/`, { params: { department: departmentId } })
+    solverPatterns.value = response.data
+    if (solverPatterns.value.length > 0) {
+      // Try to find a default pattern, otherwise select the first one
+      const defaultPattern = solverPatterns.value.find(p => p.is_default)
+      selectedSolverPatternId.value = defaultPattern ? defaultPattern.id : solverPatterns.value[0].id
+      loadSolverPattern() // Load the selected pattern into solverSettings
+    } else {
+      // If no patterns exist, initialize with default values
+      solverSettings.value = {
+        headcount_penalty_cost: 10000000,
+        holiday_violation_penalty: 50000,
+        incompatible_penalty: 60000,
+        consecutive_work_violation_penalty: 45000,
+        salary_too_low_penalty: 40000,
+        salary_too_high_penalty: 30000,
+        difficulty_bonus_weight: 10000,
+        work_day_deviation_penalty: 7000,
+        pairing_bonus: 5000,
+        shift_preference_bonus: 100,
+        unavailable_day_penalty: 70000,
+      }
+      selectedSolverPatternId.value = null
+    }
+  } catch (error) {
+    console.error('ソルバー設定パターンの取得に失敗しました:', error)
+    // Fallback to default values if API call fails
+    solverSettings.value = {
+      headcount_penalty_cost: 10000000,
+      holiday_violation_penalty: 50000,
+      incompatible_penalty: 60000,
+      consecutive_work_violation_penalty: 45000,
+      salary_too_low_penalty: 40000,
+      salary_too_high_penalty: 30000,
+      difficulty_bonus_weight: 10000,
+      work_day_deviation_penalty: 7000,
+      pairing_bonus: 5000,
+      shift_preference_bonus: 100,
+      unavailable_day_penalty: 70000,
+    }
+    selectedSolverPatternId.value = null
+  }
+}
+
+const loadSolverPattern = () => {
+  const selectedPattern = solverPatterns.value.find(p => p.id === selectedSolverPatternId.value)
+  if (selectedPattern) {
+    // Copy all relevant fields from the selected pattern to solverSettings
+    for (const key in selectedPattern) {
+      if (key !== 'id' && key !== 'department' && key !== 'name' && key !== 'is_default') {
+        solverSettings.value[key] = selectedPattern[key]
+      }
+    }
+  }
+}
+
+const saveCurrentSolverSettings = async () => {
+  isLoading.value = true
+  message.value = 'ソルバー設定を保存中...'
+  try {
+    if (selectedSolverPatternId.value) {
+      // Update existing pattern
+      await axios.put(`http://127.0.0.1:8000/api/v1/solver-settings/${selectedSolverPatternId.value}/`, solverSettings.value)
+      message.value = 'ソルバー設定が更新されました。'
+    } else {
+      // This case should ideally not happen if a pattern is always selected/created
+      message.value = '保存するパターンが選択されていません。'
+    }
+    await fetchAllSolverPatterns(selectedDepartment.value) // Refresh patterns
+  } catch (error) {
+    message.value = 'ソルバー設定の保存に失敗しました。'
+    console.error('Error saving solver settings:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const saveNewSolverPattern = async () => {
+  if (!newPatternName.value.trim()) {
+    message.value = '新しいパターン名を入力してください。'
+    return
+  }
+  isLoading.value = true
+  message.value = '新しいソルバーパターンを保存中...'
+  try {
+    const newPatternData = {
+      ...solverSettings.value, // Copy current settings
+      department: selectedDepartment.value,
+      name: newPatternName.value.trim(),
+      is_default: false // New patterns are not default by default
+    }
+    const response = await axios.post(`http://127.0.0.1:8000/api/v1/solver-settings/`, newPatternData)
+    message.value = `新しいパターン「${newPatternName.value}」が保存されました。`
+    newPatternName.value = '' // Clear input
+    await fetchAllSolverPatterns(selectedDepartment.value) // Refresh patterns
+    selectedSolverPatternId.value = response.data.id // Select the newly created pattern
+    loadSolverPattern() // Load it into the form
+  } catch (error) {
+    message.value = '新しいソルバーパターンの保存に失敗しました。'
+    console.error('Error saving new solver pattern:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const setDefaultPattern = async () => {
+  if (!selectedSolverPatternId.value) {
+    message.value = 'デフォルトに設定するパターンを選択してください。'
+    return
+  }
+  isLoading.value = true
+  message.value = 'デフォルトパターンを設定中...'
+  try {
+    // First, set all patterns for this department to not default
+    for (const pattern of solverPatterns.value) {
+      if (pattern.is_default && pattern.id !== selectedSolverPatternId.value) {
+        await axios.put(`http://127.0.0.1:8000/api/v1/solver-settings/${pattern.id}/`, { is_default: false })
+      }
+    }
+    // Then, set the selected pattern as default
+    await axios.put(`http://127.0.0.1:8000/api/v1/solver-settings/${selectedSolverPatternId.value}/`, { is_default: true })
+    message.value = 'デフォルトパターンが設定されました。'
+    await fetchAllSolverPatterns(selectedDepartment.value) // Refresh patterns to reflect changes
+  } catch (error) {
+    message.value = 'デフォルトパターンの設定に失敗しました。'
+    console.error('Error setting default pattern:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
 
 const getAssignablePatternsForMember = (member) => {
   if (!member.assignable_patterns || member.assignable_patterns.length === 0) {
@@ -592,13 +728,28 @@ const saveSolverSettings = async () => {
 
     <div class="solver-settings-section">
       <h2>ソルバー設定</h2>
+      <div class="pattern-controls">
+        <label for="solverPatternSelect">保存されたパターン:</label>
+        <select id="solverPatternSelect" v-model="selectedSolverPatternId" @change="loadSolverPattern">
+          <option v-if="solverPatterns.length === 0" :value="null" disabled>パターンがありません</option>
+          <option v-for="pattern in solverPatterns" :key="pattern.id" :value="pattern.id">
+            {{ pattern.name }} {{ pattern.is_default ? '(デフォルト)' : '' }}
+          </option>
+        </select>
+        <button @click="setDefaultPattern" :disabled="!selectedSolverPatternId || isLoading">デフォルトに設定</button>
+      </div>
+
       <div class="settings-grid">
         <div v-for="(value, key) in solverSettings" :key="key" class="setting-item">
           <label :for="key">{{ settingDescriptions[key] || key }}</label>
           <input type="number" :id="key" v-model.number="solverSettings[key]" />
         </div>
       </div>
-      <button @click="saveSolverSettings" :disabled="isLoading">設定を保存</button>
+      <button @click="saveCurrentSolverSettings" :disabled="isLoading || !selectedSolverPatternId">現在の設定を更新</button>
+      <div class="new-pattern-save">
+        <input type="text" v-model="newPatternName" placeholder="新しいパターン名" :disabled="isLoading">
+        <button @click="saveNewSolverPattern" :disabled="isLoading || !newPatternName.trim()">新しいパターンとして保存</button>
+      </div>
     </div>
     <hr />
 
@@ -904,7 +1055,92 @@ tfoot {
   box-sizing: border-box;
 }
 
-.solver-settings-section button {
+.pattern-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.pattern-controls select {
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.pattern-controls button {
+  padding: 8px 15px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.pattern-controls button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.setting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.setting-item label {
+  font-weight: bold;
+  color: #555;
+  font-size: 0.9em;
+}
+
+.setting-item input[type="number"] {
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.new-pattern-save {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid #eee;
+}
+
+.new-pattern-save input[type="text"] {
+  flex-grow: 1;
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.new-pattern-save button {
+  padding: 8px 15px;
+  background-color: #28a745; /* Green for save new */
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.new-pattern-save button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}
+
+.solver-settings-section > button { /* This targets the "Update current settings" button */
   padding: 10px 20px;
   background-color: #007bff;
   color: white;
@@ -914,7 +1150,7 @@ tfoot {
   font-size: 1em;
 }
 
-.solver-settings-section button:disabled {
+.solver-settings-section > button:disabled {
   background-color: #cccccc;
   cursor: not-allowed;
 }
