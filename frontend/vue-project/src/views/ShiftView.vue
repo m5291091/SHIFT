@@ -1,6 +1,8 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import axios from 'axios'
+import OtherAssignmentModal from '@/components/OtherAssignmentModal.vue'
+import ShiftControlHeader from '@/components/ShiftControlHeader.vue'
 
 const departments = ref([])
 const selectedDepartment = ref(null)
@@ -20,6 +22,11 @@ const otherAssignments = ref([])
 const designatedHolidays = ref([]) // New
 const selectedCells = ref({}) // New reactive property for multi-selection
 
+// Modal state
+const isOtherAssignmentModalVisible = ref(false)
+const selectedMemberForModal = ref(null)
+const selectedDateForModal = ref('')
+
 // Descriptions for solver settings
 const settingDescriptions = {
   headcount_penalty_cost: '時間帯の最低必要人数が不足した場合のペナルティ。高いほど人数充足を優先します。',
@@ -33,7 +40,6 @@ const settingDescriptions = {
   pairing_bonus: 'ペアリングメンバーが同時に勤務した場合のボーナス。高いほどペアリングを優先します。',
   shift_preference_bonus: '従業員のシフト希望を尊重した場合のボーナス。高いほど希望を優先します。',
 }
-
 
 onMounted(async () => {
   try {
@@ -55,22 +61,22 @@ watch(selectedDepartment, async (newDepartmentId) => {
     } catch (error) {
       console.error('シフトパターンの取得に失敗しました:', error)
     }
-    await fetchScheduleData(true);
+    await fetchScheduleData(true)
   }
-});
+})
 
 const getAssignablePatternsForMember = (member) => {
   if (!member.assignable_patterns || member.assignable_patterns.length === 0) {
-    return shiftPatterns.value;
+    return shiftPatterns.value
   }
-  return shiftPatterns.value.filter(p => member.assignable_patterns.includes(p.id));
+  return shiftPatterns.value.filter((p) => member.assignable_patterns.includes(p.id))
 }
 
 const formatDate = (dateObj) => {
-  const y = dateObj.getFullYear();
-  const m = String(dateObj.getMonth() + 1).padStart(2, '0');
-  const d = String(dateObj.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  const y = dateObj.getFullYear()
+  const m = String(dateObj.getMonth() + 1).padStart(2, '0')
+  const d = String(dateObj.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 const dateHeaders = computed(() => {
@@ -78,7 +84,7 @@ const dateHeaders = computed(() => {
   const dates = []
   let currentDate = new Date(startDate.value + 'T00:00:00')
   const lastDate = new Date(endDate.value + 'T00:00:00')
-  const weekdays = ['日', '月', '火', '水', '木', '金', '土']
+  const weekdays = ['日', '月', '火', '水', '木', '火', '金', '土']
   while (currentDate <= lastDate) {
     dates.push({
       date: formatDate(currentDate),
@@ -92,26 +98,26 @@ const dateHeaders = computed(() => {
 const memberStats = computed(() => {
   const stats = {}
   const totalDays = dateHeaders.value.length
-  if (totalDays === 0) return stats;
+  if (totalDays === 0) return stats
 
-  members.value.forEach(member => {
-    const workDates = new Set();
-    assignments.value.forEach(a => {
+  members.value.forEach((member) => {
+    const workDates = new Set()
+    assignments.value.forEach((a) => {
       if (a.member_id === member.id) {
-        workDates.add(a.shift_date);
+        workDates.add(a.shift_date)
       }
-    });
-    otherAssignments.value.forEach(a => {
+    })
+    otherAssignments.value.forEach((a) => {
       if (a.member === member.id) {
-        workDates.add(a.shift_date);
+        workDates.add(a.shift_date)
       }
-    });
-    fixedAssignments.value.forEach(a => {
+    })
+    fixedAssignments.value.forEach((a) => {
       if (a.member_id === member.id) {
-        workDates.add(a.shift_date);
+        workDates.add(a.shift_date)
       }
-    });
-    
+    })
+
     stats[member.id] = {
       holidays: totalDays - workDates.size,
     }
@@ -121,90 +127,90 @@ const memberStats = computed(() => {
 
 const dailyHeadcounts = computed(() => {
   const counts = {}
-  dateHeaders.value.forEach(header => {
+  dateHeaders.value.forEach((header) => {
     counts[header.date] = {}
-    shiftPatterns.value.forEach(p => {
+    shiftPatterns.value.forEach((p) => {
       counts[header.date][p.pattern_name] = 0
     })
   })
 
-  const uniqueAssignments = new Map();
+  const uniqueAssignments = new Map()
 
   // assignments をまず Map に登録
-  assignments.value.forEach(a => {
+  assignments.value.forEach((a) => {
     if (a && a.shift_date && a.member_id) {
-      const key = `${a.shift_date}-${a.member_id}`;
-      uniqueAssignments.set(key, a);
+      const key = `${a.shift_date}-${a.member_id}`
+      uniqueAssignments.set(key, a)
     }
-  });
+  })
 
   // fixedAssignments を登録（重複していれば上書きされるが、内容は同じはず）
-  fixedAssignments.value.forEach(a => {
+  fixedAssignments.value.forEach((a) => {
     if (a && a.shift_date && a.member_id) {
-      const key = `${a.shift_date}-${a.member_id}`;
-      uniqueAssignments.set(key, a);
+      const key = `${a.shift_date}-${a.member_id}`
+      uniqueAssignments.set(key, a)
     }
-  });
+  })
 
   // Map の値（ユニークなアサインメント）をループしてカウント
-  uniqueAssignments.forEach(a => {
+  uniqueAssignments.forEach((a) => {
     if (a && a.shift_pattern_name && counts[a.shift_date] && counts[a.shift_date][a.shift_pattern_name] !== undefined) {
-      counts[a.shift_date][a.shift_pattern_name]++;
+      counts[a.shift_date][a.shift_pattern_name]++
     }
-  });
+  })
 
   return counts
 })
 
 const scheduleGrid = computed(() => {
   const grid = {}
-  members.value.forEach(member => {
+  members.value.forEach((member) => {
     grid[member.id] = {}
-    dateHeaders.value.forEach(header => {
+    dateHeaders.value.forEach((header) => {
       // Default to empty cell
-      let cell = { text: '/', type: 'empty', patternId: null };
+      let cell = { text: '/', type: 'empty', patternId: null }
 
       // Check for availability (overrides default empty)
       const dayOfWeek = new Date(header.date + 'T00:00:00').getDay()
-      const dayOfWeekForDjango = (dayOfWeek + 6) % 7;
-      const isAvailable = availabilities.value.some(avail => 
-        avail.member === member.id && avail.day_of_week === dayOfWeekForDjango
+      const dayOfWeekForDjango = (dayOfWeek + 6) % 7
+      const isAvailable = availabilities.value.some(
+        (avail) => avail.member === member.id && avail.day_of_week === dayOfWeekForDjango
       )
-      if(isAvailable) {
-        cell = { text: '-', type: 'available', patternId: null };
+      if (isAvailable) {
+        cell = { text: '-', type: 'available', patternId: null }
       }
 
       // Check for day-level infeasibility (overrides empty/available if present)
       if (infeasibleDays.value[header.date]) {
         // Only apply infeasible type if it's an empty or available cell
         if (cell.type === 'empty' || cell.type === 'available') {
-          cell = { text: '', type: 'infeasible', patternId: null, reason: infeasibleDays.value[header.date] };
+          cell = { text: '', type: 'infeasible', patternId: null, reason: infeasibleDays.value[header.date] }
         }
       }
-      grid[member.id][header.date] = cell;
+      grid[member.id][header.date] = cell
     })
   })
-  leaveRequests.value.forEach(req => {
+  leaveRequests.value.forEach((req) => {
     if (grid[req.member_id]) {
       grid[req.member_id][req.leave_date] = { text: '希望休', type: 'leave', patternId: null }
     }
   })
-  designatedHolidays.value.forEach(holiday => {
+  designatedHolidays.value.forEach((holiday) => {
     if (grid[holiday.member]) {
       grid[holiday.member][holiday.date] = { text: '指定休日', type: 'designated-holiday', patternId: null }
     }
   })
-  assignments.value.forEach(a => {
+  assignments.value.forEach((a) => {
     if (grid[a.member_id]) {
       grid[a.member_id][a.shift_date] = { text: a.shift_pattern_name, type: 'assigned', patternId: a.shift_pattern }
     }
   })
-  otherAssignments.value.forEach(a => {
+  otherAssignments.value.forEach((a) => {
     if (grid[a.member]) {
       grid[a.member][a.shift_date] = { text: a.activity_name, type: 'other', patternId: 'other' }
     }
   })
-  fixedAssignments.value.forEach(a => {
+  fixedAssignments.value.forEach((a) => {
     if (grid[a.member_id]) {
       grid[a.member_id][a.shift_date] = { text: a.shift_pattern_name, type: 'fixed', patternId: a.shift_pattern }
     }
@@ -213,236 +219,283 @@ const scheduleGrid = computed(() => {
 })
 
 const getHeadcountClass = (date, pattern) => {
-  const count = dailyHeadcounts.value[date]?.[pattern.pattern_name];
-  if (count === undefined) return '';
+  const count = dailyHeadcounts.value[date]?.[pattern.pattern_name]
+  if (count === undefined) return ''
   if (pattern.min_headcount > 0 && count < pattern.min_headcount) {
-    return 'headcount-shortage';
+    return 'headcount-shortage'
   }
   if (pattern.max_headcount !== null && count > pattern.max_headcount) {
-    return 'headcount-surplus';
+    return 'headcount-surplus'
   }
-  return '';
+  return ''
 }
 
 const handleShiftChange = async (memberId, date, event) => {
   const selectedValue = event.target.value
-  isLoading.value = true;
-  message.value = '手動変更を保存中...';
-  
+
+  if (selectedValue === '') {
+    await deleteShift(memberId, date)
+    return
+  }
+
+  if (selectedValue === 'other') {
+    selectedMemberForModal.value = members.value.find((m) => m.id === memberId)
+    selectedDateForModal.value = date
+    isOtherAssignmentModalVisible.value = true
+    // The select box visually changes to "その他...".
+    // We need to refresh the data to revert it back to its original state
+    // while the modal is open.
+    await fetchScheduleData(true)
+    return
+  }
+
+  isLoading.value = true
+  message.value = '手動変更を保存中...'
+
   try {
-    if (selectedValue === 'other') {
-      const activityName = prompt('業務内容を入力してください（例：研修）');
-      if (activityName) {
-        await axios.post('http://127.0.0.1:8000/api/v1/other-assignment/', {
-          member_id: memberId, shift_date: date, activity_name: activityName,
-        });
-      }
-    } else if (selectedValue === 'designated-holiday') {
+    if (selectedValue === 'designated-holiday') {
       await axios.post('http://127.0.0.1:8000/api/v1/designated-holiday/', {
         member_id: memberId,
         date: date,
-      });
+      })
     } else {
-      const patternId = selectedValue === '' ? null : selectedValue;
+      const patternId = selectedValue
       await axios.post('http://127.0.0.1:8000/api/v1/fixed-assignment/', {
-        member_id: memberId, shift_date: date, pattern_id: patternId,
-      });
+        member_id: memberId,
+        shift_date: date,
+        pattern_id: patternId,
+      })
     }
-    message.value = '手動変更が保存されました。';
-    await fetchScheduleData(true);
+    message.value = '手動変更が保存されました。'
+    await fetchScheduleData(true)
   } catch (error) {
-    message.value = '手動変更の保存に失敗しました。';
-    console.error('Error saving shift change:', error);
+    message.value = '手動変更の保存に失敗しました。'
+    console.error('Error saving shift change:', error)
+    // エラー時もUIを最新の状態に保つ
+    await fetchScheduleData(true)
   } finally {
-    isLoading.value = false;
+    isLoading.value = false
+  }
+}
+
+const handleCloseModal = () => {
+  isOtherAssignmentModalVisible.value = false
+}
+
+const handleSaveOtherAssignment = async (activityName) => {
+  isOtherAssignmentModalVisible.value = false
+  isLoading.value = true
+  message.value = '「その他」の割り当てを保存中...'
+
+  try {
+    await axios.post('http://127.0.0.1:8000/api/v1/other-assignment/', {
+      member_id: selectedMemberForModal.value.id,
+      shift_date: selectedDateForModal.value,
+      activity_name: activityName,
+    })
+    message.value = '保存されました。'
+    await fetchScheduleData(true)
+  } catch (error) {
+    message.value = '保存に失敗しました。'
+    console.error('Error saving other assignment:', error)
+  } finally {
+    isLoading.value = false
   }
 }
 
 const generateShifts = async () => {
   if (!startDate.value || !endDate.value || !selectedDepartment.value) {
-    message.value = '部署、開始日、終了日を選択してください。';
-    return;
+    message.value = '部署、開始日、終了日を選択してください。'
+    return
   }
-  isLoading.value = true;
-  message.value = 'シフトを生成中です...';
-  
+
+  if (!confirm('未確定のシフトは上書きされます。よろしいですか？')) {
+    return
+  }
+
+  isLoading.value = true
+  message.value = 'シフトを生成中です...'
+
   try {
     const response = await axios.post('http://127.0.0.1:8000/api/v1/generate-shifts/', {
       department_id: selectedDepartment.value,
       start_date: startDate.value,
       end_date: endDate.value,
-    });
-    
-    infeasibleDays.value = response.data.infeasible_days || {};
-    assignments.value = response.data.assignments || [];
-    
+    })
+
+    infeasibleDays.value = response.data.infeasible_days || {}
+    assignments.value = response.data.assignments || []
+
     if (Object.keys(infeasibleDays.value).length > 0) {
-      message.value = '人員不足のため一部の日付が生成できませんでした。';
+      message.value = '人員不足のため一部の日付が生成できませんでした。'
     } else if (response.data.success) {
-      message.value = '生成が完了しました。';
+      message.value = '生成が完了しました。'
     } else {
-      message.value = 'シフト生成に失敗しました。ルールが厳しすぎる可能性があります。';
+      message.value = 'シフト生成に失敗しました。ルールが厳しすぎる可能性があります。'
     }
-    await fetchScheduleData(false); // assignments以外を再取得
+    await fetchScheduleData(false) // assignments以外を再取得
   } catch (error) {
-    console.error('リクエストエラー:', error);
-    message.value = 'サーバーとの通信中にエラーが発生しました。';
+    console.error('リクエストエラー:', error)
+    message.value = 'サーバーとの通信中にエラーが発生しました。'
   } finally {
-    isLoading.value = false;
+    isLoading.value = false
   }
 }
 
 const fetchScheduleData = async (shouldFetchAssignments = true) => {
-  if (!selectedDepartment.value) return;
+  if (!selectedDepartment.value) return
   try {
     const response = await axios.get('http://127.0.0.1:8000/api/v1/schedule-data/', {
-      params: { 
+      params: {
         department_id: selectedDepartment.value,
-        start_date: startDate.value, 
-        end_date: endDate.value 
+        start_date: startDate.value,
+        end_date: endDate.value,
       },
-    });
+    })
     if (shouldFetchAssignments) {
-        assignments.value = response.data.assignments;
+      assignments.value = response.data.assignments
     }
-    leaveRequests.value = response.data.leave_requests;
-    members.value = response.data.members;
-    availabilities.value = response.data.availabilities;
-    earnings.value = response.data.earnings;
-    otherAssignments.value = response.data.other_assignments;
-    fixedAssignments.value = response.data.fixed_assignments;
-    designatedHolidays.value = response.data.designated_holidays;
+    leaveRequests.value = response.data.leave_requests
+    members.value = response.data.members
+    availabilities.value = response.data.availabilities
+    earnings.value = response.data.earnings
+    otherAssignments.value = response.data.other_assignments
+    fixedAssignments.value = response.data.fixed_assignments
+    designatedHolidays.value = response.data.designated_holidays
   } catch (error) {
-    console.error('スケジュールデータの読み込みに失敗しました:', error);
+    console.error('スケジュールデータの読み込みに失敗しました:', error)
   }
 }
 
 const toggleCellSelection = (memberId, date) => {
-  const key = `${memberId}_${date}`;
-  selectedCells.value[key] = !selectedCells.value[key];
-};
+  const key = `${memberId}_${date}`
+  selectedCells.value[key] = !selectedCells.value[key]
+}
 
 const isCellSelected = (memberId, date) => {
-  const key = `${memberId}_${date}`;
-  return selectedCells.value[key];
-};
+  const key = `${memberId}_${date}`
+  return selectedCells.value[key]
+}
 
 const toggleDaySelection = (date) => {
-  const dayShifts = [];
-  members.value.forEach(member => {
-    const cell = scheduleGrid.value[member.id]?.[date];
+  const dayShifts = []
+  members.value.forEach((member) => {
+    const cell = scheduleGrid.value[member.id]?.[date]
     if (cell && (cell.type === 'assigned' || cell.type === 'fixed')) {
-      dayShifts.push({ memberId: member.id, date });
+      dayShifts.push({ memberId: member.id, date })
     }
-  });
+  })
 
-  const allSelected = dayShifts.every(shift => isCellSelected(shift.memberId, shift.date));
+  const allSelected = dayShifts.every((shift) => isCellSelected(shift.memberId, shift.date))
 
-  dayShifts.forEach(shift => {
-    const key = `${shift.memberId}_${shift.date}`;
-    selectedCells.value[key] = !allSelected;
-  });
-};
+  dayShifts.forEach((shift) => {
+    const key = `${shift.memberId}_${shift.date}`
+    selectedCells.value[key] = !allSelected
+  })
+}
 
 const isDaySelected = (date) => {
-  const dayShifts = [];
-  members.value.forEach(member => {
-    const cell = scheduleGrid.value[member.id]?.[date];
+  const dayShifts = []
+  members.value.forEach((member) => {
+    const cell = scheduleGrid.value[member.id]?.[date]
     if (cell && (cell.type === 'assigned' || cell.type === 'fixed')) {
-      dayShifts.push({ memberId: member.id, date });
+      dayShifts.push({ memberId: member.id, date })
     }
-  });
+  })
 
   if (dayShifts.length === 0) {
-    return false;
+    return false
   }
 
-  return dayShifts.every(shift => isCellSelected(shift.memberId, shift.date));
-};
+  return dayShifts.every((shift) => isCellSelected(shift.memberId, shift.date))
+}
 
 const confirmSelectedShifts = async () => {
-  const assignmentsToFix = [];
+  const assignmentsToFix = []
   for (const key in selectedCells.value) {
     if (selectedCells.value[key]) {
-      const [memberId, date] = key.split('_');
-      const cell = scheduleGrid.value[memberId]?.[date];
+      const [memberId, date] = key.split('_')
+      const cell = scheduleGrid.value[memberId]?.[date]
       // Only assigned or already fixed shifts can be confirmed
       if (cell && (cell.type === 'assigned' || cell.type === 'fixed') && cell.patternId) {
         assignmentsToFix.push({
           member_id: parseInt(memberId),
           shift_pattern_id: cell.patternId,
           shift_date: date,
-        });
+        })
       }
     }
   }
 
   if (assignmentsToFix.length === 0) {
-    message.value = '確定するシフトが選択されていません。（生成済みのシフトセルをクリックして選択してください）';
-    return;
+    message.value = '確定するシフトが選択されていません。（生成済みのシフトセルをクリックして選択してください）'
+    return
   }
 
-  isLoading.value = true;
-  message.value = '選択されたシフトを固定中...';
+  isLoading.value = true
+  message.value = '選択されたシフトを固定中...'
 
   try {
     await axios.post('http://127.0.0.1:8000/api/v1/bulk-fixed-assignments/', {
       assignments: assignmentsToFix,
-    });
-    message.value = 'シフトが正常に固定されました。';
-    selectedCells.value = {}; // Clear selection
-    await fetchScheduleData(true); // Refresh all data
+    })
+    message.value = 'シフトが正常に固定されました。'
+    selectedCells.value = {} // Clear selection
+    await fetchScheduleData(true) // Refresh all data
   } catch (error) {
-    message.value = 'シフトの固定に失敗しました。';
+    message.value = 'シフトの固定に失敗しました。'
     if (error.response) {
-      console.error('Error fixing shifts:', error.response.data);
-      const errorDetail = JSON.stringify(error.response.data);
-      message.value = `シフトの固定に失敗しました。サーバーエラー: ${errorDetail}`;
+      console.error('Error fixing shifts:', error.response.data)
+      const errorDetail = JSON.stringify(error.response.data)
+      message.value = `シフトの固定に失敗しました。サーバーエラー: ${errorDetail}`
     } else {
-      console.error('Error fixing shifts:', error.message);
+      console.error('Error fixing shifts:', error.message)
     }
   } finally {
-    isLoading.value = false;
+    isLoading.value = false
   }
-};
+}
 
 const deleteShift = async (memberId, date) => {
-  isLoading.value = true;
-  message.value = 'シフトを削除中...';
+  if (!confirm('このシフトを削除してもよろしいですか？')) {
+    // ユーザーがキャンセルした場合、セレクトボックスの表示を元に戻すためにデータを再取得
+    await fetchScheduleData(true)
+    return
+  }
+  isLoading.value = true
+  message.value = 'シフトを削除中...'
   try {
     await axios.post('http://127.0.0.1:8000/api/v1/fixed-assignment/', {
-      member_id: memberId, shift_date: date, pattern_id: null,
-    });
-    message.value = 'シフトが削除されました。';
-    await fetchScheduleData(true);
+      member_id: memberId,
+      shift_date: date,
+      pattern_id: null,
+    })
+    message.value = 'シフトが削除されました。'
+    await fetchScheduleData(true)
   } catch (error) {
-    message.value = 'シフトの削除に失敗しました。';
-    console.error('Error deleting shift:', error);
+    message.value = 'シフトの削除に失敗しました。'
+    console.error('Error deleting shift:', error)
   } finally {
-    isLoading.value = false;
+    isLoading.value = false
   }
-};
+}
 </script>
 
 <template>
   <div>
     <h1>シフト自動生成</h1>
-    <div>
-      <label for="department">部署:</label>
-      <select id="department" v-model="selectedDepartment">
-        <option v-for="dept in departments" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
-      </select>
-      <label for="start">開始日:</label>
-      <input type="date" id="start" v-model="startDate" />
-      <label for="end">終了日:</label>
-      <input type="date" id="end" v-model="endDate" />
-      <button @click="generateShifts" :disabled="isLoading">
-        {{ isLoading ? '生成中...' : 'シフトを生成' }}
-      </button>
-      <button @click="confirmSelectedShifts" :disabled="isLoading" style="margin-left: 10px;">
-        選択したシフトを確定
-      </button>
-    </div>
+    <ShiftControlHeader
+      :departments="departments"
+      :selectedDepartment="selectedDepartment"
+      @update:selectedDepartment="selectedDepartment = $event"
+      :startDate="startDate"
+      @update:startDate="startDate = $event"
+      :endDate="endDate"
+      @update:endDate="endDate = $event"
+      :isLoading="isLoading"
+      @generate-shifts="generateShifts"
+      @confirm-selected-shifts="confirmSelectedShifts"
+    />
 
     <p>{{ message }}</p>
     <hr />
@@ -455,7 +508,7 @@ const deleteShift = async (memberId, date) => {
             <th class="sticky-col">従業員 (休日 / 給与)</th>
             <th v-for="header in dateHeaders" :key="header.date">
               <div>
-                <input 
+                <input
                   type="checkbox"
                   :checked="isDaySelected(header.date)"
                   @change="toggleDaySelection(header.date)"
@@ -475,11 +528,16 @@ const deleteShift = async (memberId, date) => {
                 <span v-if="earnings[member.id]">(¥{{ earnings[member.id].toLocaleString() }})</span>
               </div>
             </td>
-            <td v-for="header in dateHeaders" :key="`${member.id}-${header.date}`" 
-                :class="[scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].type : 'empty', { 'selected-cell': isCellSelected(member.id, header.date) }]"
-                :title="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].reason : ''">
-              
-              <input 
+            <td
+              v-for="header in dateHeaders"
+              :key="`${member.id}-${header.date}`"
+              :class="[
+                scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].type : 'empty',
+                { 'selected-cell': isCellSelected(member.id, header.date) },
+              ]"
+              :title="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].reason : ''"
+            >
+              <input
                 type="checkbox"
                 v-if="scheduleGrid[member.id]?.[header.date]?.type === 'assigned' || scheduleGrid[member.id]?.[header.date]?.type === 'fixed'"
                 :checked="isCellSelected(member.id, header.date)"
@@ -487,14 +545,16 @@ const deleteShift = async (memberId, date) => {
                 class="shift-checkbox"
               />
 
-              <button 
+              <button
                 v-if="scheduleGrid[member.id]?.[header.date]?.type === 'assigned' || scheduleGrid[member.id]?.[header.date]?.type === 'fixed'"
                 @click="deleteShift(member.id, header.date)"
                 class="delete-shift-btn"
-              >✖️</button>
+              >
+                ✖️
+              </button>
 
-              <select 
-                v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'leave'" 
+              <select
+                v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'leave'"
                 :value="scheduleGrid[member.id][header.date].patternId"
                 @change="handleShiftChange(member.id, header.date, $event)"
               >
@@ -520,6 +580,13 @@ const deleteShift = async (memberId, date) => {
         </tfoot>
       </table>
     </div>
+    <OtherAssignmentModal
+      :show="isOtherAssignmentModalVisible"
+      :member="selectedMemberForModal"
+      :date="selectedDateForModal"
+      @close="handleCloseModal"
+      @save="handleSaveOtherAssignment"
+    />
   </div>
 </template>
 
@@ -534,7 +601,8 @@ table {
   border-collapse: collapse;
   white-space: nowrap;
 }
-th, td {
+th,
+td {
   border: 1px solid #ccc;
   padding: 0;
   text-align: center;
@@ -600,14 +668,41 @@ td > span {
   z-index: 1;
   min-width: 150px;
 }
-td.leave { background-color: #fce4e4; color: #9b2c2c; font-weight: bold; }
-td.other { background-color: #dbeafe; color: #1e40af; }
-td.assigned { background-color: #e6fffa; }
-td.available { background-color: #edf2f7; }
-td.empty { background-color: #edf2f7; color: #a0aec0; }
-td.infeasible { background-color: #edf2f7; color: #b7791f; font-weight: bold; font-size: 0.9em; }
-td.fixed { background-color: #cfe2f3; color: #000; font-weight: bold; }
-.designated-holiday { background-color: #e8daff; color: #581c87; font-weight: bold; }
+td.leave {
+  background-color: #fce4e4;
+  color: #9b2c2c;
+  font-weight: bold;
+}
+td.other {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+td.assigned {
+  background-color: #e6fffa;
+}
+td.available {
+  background-color: #edf2f7;
+}
+td.empty {
+  background-color: #edf2f7;
+  color: #a0aec0;
+}
+td.infeasible {
+  background-color: #edf2f7;
+  color: #b7791f;
+  font-weight: bold;
+  font-size: 0.9em;
+}
+td.fixed {
+  background-color: #cfe2f3;
+  color: #000;
+  font-weight: bold;
+}
+.designated-holiday {
+  background-color: #e8daff;
+  color: #581c87;
+  font-weight: bold;
+}
 
 .selected-cell {
   border: 2px solid #007bff !important; /* Blue border for selected cells */
@@ -644,3 +739,4 @@ tfoot {
   color: #ef6c00;
 }
 </style>
+
