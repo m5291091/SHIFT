@@ -29,5 +29,5 @@ services:
     autoDeploy: true
 
 databases:
-  - name: shift_app_db
+  - name: shift-app-db
     plan: free # または starter, standardなど
