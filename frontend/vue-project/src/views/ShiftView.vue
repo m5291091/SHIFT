@@ -318,12 +318,12 @@ const fetchScheduleData = async (shouldFetchAssignments = true) => {
 }
 
 const toggleCellSelection = (memberId, date) => {
-  const key = `${memberId}-${date}`;
+  const key = `${memberId}_${date}`;
   selectedCells.value[key] = !selectedCells.value[key];
 };
 
 const isCellSelected = (memberId, date) => {
-  const key = `${memberId}-${date}`;
+  const key = `${memberId}_${date}`;
   return selectedCells.value[key];
 };
 
@@ -331,7 +331,7 @@ const confirmSelectedShifts = async () => {
   const assignmentsToFix = [];
   for (const key in selectedCells.value) {
     if (selectedCells.value[key]) {
-      const [memberId, date] = key.split('-');
+      const [memberId, date] = key.split('_');
       const cell = scheduleGrid.value[memberId]?.[date];
       // Only assigned or already fixed shifts can be confirmed
       if (cell && (cell.type === 'assigned' || cell.type === 'fixed') && cell.patternId) {
