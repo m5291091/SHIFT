@@ -454,7 +454,7 @@ const deleteShift = async (memberId, date) => {
               >✖️</button>
 
               <select 
-                v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'leave' && scheduleGrid[member.id][header.date].type !== 'designated-holiday'" 
+                v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'leave'" 
                 :value="scheduleGrid[member.id][header.date].patternId"
                 @change="handleShiftChange(member.id, header.date, $event)"
               >

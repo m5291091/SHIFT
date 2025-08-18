@@ -137,6 +137,8 @@ class ManualAssignmentView(APIView):
         pattern_id = request.data.get('pattern_id')
         
         member = Member.objects.get(id=member_id)
+
+        DesignatedHoliday.objects.filter(member_id=member_id, date=shift_date).delete()
         
         Assignment.objects.filter(
             member_id=member_id, 
@@ -159,6 +161,8 @@ class OtherAssignmentView(APIView):
         activity_name = request.data.get('activity_name')
         
         member = Member.objects.get(id=member_id)
+
+        DesignatedHoliday.objects.filter(member_id=member_id, date=shift_date).delete()
         
         Assignment.objects.filter(
             member_id=member_id, 
@@ -202,6 +206,8 @@ class FixedAssignmentView(APIView):
         
         if not all([member_id, shift_date]):
             return Response({'error': 'member_id and shift_date are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        DesignatedHoliday.objects.filter(member_id=member_id, date=shift_date).delete()
         
         # Delete any existing generated assignment for this member and date
         Assignment.objects.filter(member_id=member_id, shift_date=shift_date).delete()
@@ -228,21 +234,19 @@ class DesignatedHolidayView(APIView):
         if not all([member_id, date]):
             return Response({'error': 'member_id and date are required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Toggle logic: if it exists, delete it. If not, create it.
+        # If it doesn't exist, create it. If it exists, do nothing.
         holiday, created = DesignatedHoliday.objects.get_or_create(
             member_id=member_id,
             date=date
         )
 
-        if not created:
-            # it existed, so we delete it
-            holiday.delete()
-            action = "deleted"
-        else:
+        if created:
             # it was created, so clear any other assignments for that day
             Assignment.objects.filter(member_id=member_id, shift_date=date).delete()
             FixedAssignment.objects.filter(member_id=member_id, shift_date=date).delete()
             OtherAssignment.objects.filter(member_id=member_id, shift_date=date).delete()
             action = "created"
+        else:
+            action = "already_exists"
             
         return Response({'status': f'holiday {action}'}, status=status.HTTP_200_OK)
