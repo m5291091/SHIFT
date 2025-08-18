@@ -1,0 +1,6 @@
+Django>=4.0
+djangorestframework
+django-filter
+django-admin-interface
+django-colorfield
+ortools

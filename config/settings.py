@@ -31,6 +31,8 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    'admin_interface',
+    'colorfield',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -128,4 +130,65 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # ファイルの末尾に追加
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
+]
+
+ADMIN_INTERFACE_MENU = [
+    {
+        'app': 'core',
+        'label': '1. 基本設定',
+        'models': [
+            'core.department',
+            'core.daygroup',
+            'core.skill',
+        ]
+    },
+    {
+        'app': 'core',
+        'label': '2. 従業員管理',
+        'models': [
+            'core.member',
+            'core.memberskill',
+            'core.memberavailability',
+            'core.membershiftpatternpreference',
+        ]
+    },
+    {
+        'app': 'core',
+        'label': '3. シフトパターン・要件',
+        'models': [
+            'core.shiftpattern',
+            'core.timeslotrequirement',
+            'core.specificdaterequirement',
+            'core.specifictimeslotrequirement',
+        ]
+    },
+    {
+        'app': 'core',
+        'label': '4. シフト実績・申請',
+        'models': [
+            'core.assignment',
+            'core.fixedassignment',
+            'core.otherassignment',
+            'core.leaverequest',
+            'core.designatedholiday',
+            'core.paidleave',
+        ]
+    },
+    {
+        'app': 'core',
+        'label': '5. ソルバー・ルール設定',
+        'models': [
+            'core.solversettings',
+            'core.relationshipgroup',
+            'core.groupmember',
+        ]
+    },
+    {
+        'app': 'auth',
+        'label': '認証と認可',
+        'models': [
+            'auth.user',
+            'auth.group',
+        ]
+    },
 ]
