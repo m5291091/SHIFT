@@ -21,12 +21,13 @@ services:
     healthCheckPath: /admin/login/ # Django Adminのログインページなど、アプリが起動していることを確認できるパス
     autoDeploy: true # Gitプッシュ時に自動デプロイ
 
-  - type: web # Vue.jsフロントエンドを静的サイトとしてデプロイする場合
+  - type: static
     name: shift-app-frontend
     env: static
-    buildCommand: "npm install && npm run build"
-    staticPublishPath: "frontend/vue-project/dist"
+    buildCommand: cd frontend/vue-project && npm install && npm run build
+    staticPublishPath: frontend/vue-project/dist
     autoDeploy: true
+
 
 databases:
   - name: shift-app-db
