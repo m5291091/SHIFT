@@ -430,6 +430,39 @@ const isDaySelected = (date) => {
   return dayShifts.every((shift) => isCellSelected(shift.memberId, shift.date))
 }
 
+const toggleMemberSelection = (memberId) => {
+  const memberShifts = []
+  dateHeaders.value.forEach((header) => {
+    const cell = scheduleGrid.value[memberId]?.[header.date]
+    if (cell && (cell.type === 'assigned' || cell.type === 'fixed')) {
+      memberShifts.push({ memberId: memberId, date: header.date })
+    }
+  })
+
+  const allSelected = isMemberSelected(memberId)
+
+  memberShifts.forEach((shift) => {
+    const key = `${shift.memberId}_${shift.date}`
+    selectedCells.value[key] = !allSelected
+  })
+}
+
+const isMemberSelected = (memberId) => {
+  const memberShifts = []
+  dateHeaders.value.forEach((header) => {
+    const cell = scheduleGrid.value[memberId]?.[header.date]
+    if (cell && (cell.type === 'assigned' || cell.type === 'fixed')) {
+      memberShifts.push({ memberId: memberId, date: header.date })
+    }
+  })
+
+  if (memberShifts.length === 0) {
+    return false
+  }
+
+  return memberShifts.every((shift) => isCellSelected(shift.memberId, shift.date))
+}
+
 const confirmSelectedShifts = async () => {
   const assignmentsToFix = []
   for (const key in selectedCells.value) {
@@ -591,7 +624,15 @@ const saveSolverSettings = async () => {
         <tbody>
           <tr v-for="member in members" :key="member.id">
             <td class="sticky-col">
-              {{ member.name }}
+              <div>
+                <input
+                  type="checkbox"
+                  :checked="isMemberSelected(member.id)"
+                  @change="toggleMemberSelection(member.id)"
+                  class="member-header-checkbox"
+                />
+                {{ member.name }}
+              </div>
               <div class="stats">
                 <span v-if="memberStats[member.id]">(休{{ memberStats[member.id].holidays }})</span>
                 <span v-if="earnings[member.id]">(¥{{ earnings[member.id].toLocaleString() }})</span>
@@ -713,6 +754,9 @@ th {
   color: #000;
 }
 .header-checkbox {
+  margin-right: 5px;
+}
+.member-header-checkbox {
   margin-right: 5px;
 }
 td select {
