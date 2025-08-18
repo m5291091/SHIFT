@@ -35,16 +35,16 @@ const selectedDateForModal = ref('')
 // Descriptions for solver settings
 const settingDescriptions = {
   headcount_penalty_cost: '時間帯の最低必要人数が不足した場合のペナルティ。高いほど人数充足を優先します。',
-  headcount_surplus_penalty: '時間帯の最高人数を超過した場合のペナルティ。高いほど人数超過を避けます。',
   unavailable_day_penalty: '従業員が勤務不可曜日への割り当てペナルティ。高いほど曜日制約を優先します。',
   incompatible_penalty: '相性の悪いメンバーが同時に勤務した場合のペナルティ。高いほど同時勤務を避けます。',
   holiday_violation_penalty: '月の最低公休日数を下回った場合のペナルティ。高いほど休日制約を優先します。',
+  consecutive_work_violation_penalty: '連続勤務数上限を超過した場合のペナルティ。高いほど連続勤務制約を優先します。',
   salary_too_low_penalty: '時給制メンバーの給与が目標最低額を下回った場合のペナルティ。高いほど最低給与を優先します。',
   salary_too_high_penalty: '時給制メンバーの給与が目標最高額を上回る場合のペナルティ。高いほど最高給与を避けます。',
   difficulty_bonus_weight: '希望休が多い困難な日にシフトを割り当てた場合のボーナス。高いほど困難な日を埋めることを優先します。',
+  work_day_deviation_penalty: '勤務日数に偏りがある場合のペナルティ。高いほど勤務日数の均等化を優先します。',
   pairing_bonus: 'ペアリングメンバーが同時に勤務した場合のボーナス。高いほどペアリングを優先します。',
   shift_preference_bonus: '従業員のシフト希望を尊重した場合のボーナス。高いほど希望を優先します。',
-  unavailable_day_penalty: '勤務不可曜日への割り当てペナルティ。高いほど曜日制約を優先します。', // Added this one
 }
 
 onMounted(async () => {

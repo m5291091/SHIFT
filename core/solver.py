@@ -350,7 +350,7 @@ def generate_schedule(department_id, start_date_str, end_date_str):
             work_day_surplus = model.NewIntVar(0, num_days_in_period, f'work_day_surplus_m{m.id}')
             work_day_surplus_vars[m.id] = work_day_surplus
             model.Add(total_work_days_sum <= max_work_days + work_day_surplus)
-            total_penalty_terms.append(work_day_surplus * HOLIDAY_VIOLATION_PENALTY)
+            total_penalty_terms.append(work_day_surplus * HOLIDAY_VIOLATION_PENALTY * (1000 if m.enforce_exact_holidays else 1))
 
         # Consecutive work days constraint
         if m.max_consecutive_work_days is not None and m.max_consecutive_work_days > 0:
