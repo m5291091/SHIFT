@@ -5,3 +5,4 @@ django-admin-interface
 django-colorfield
 ortools
 django-cors-headers
+gunicorn
