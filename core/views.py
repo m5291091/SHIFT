@@ -166,3 +166,68 @@ class OtherAssignmentView(APIView):
         if activity_name:
             OtherAssignment.objects.create(member_id=member_id, shift_date=shift_date, activity_name=activity_name)
         return Response(status=status.HTTP_200_OK)
+
+class BulkFixedAssignmentView(APIView):
+    def post(self, request, *args, **kwargs):
+        assignments = request.data.get('assignments', [])
+        if not assignments:
+            return Response({'error': 'No assignments provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        fixed_assignments_to_create = []
+        for assign in assignments:
+            fixed_assignments_to_create.append(
+                FixedAssignment(
+                    member_id=assign['member_id'],
+                    shift_pattern_id=assign['shift_pattern_id'],
+                    shift_date=assign['shift_date']
+                )
+            )
+        
+        FixedAssignment.objects.bulk_create(fixed_assignments_to_create, ignore_conflicts=True)
+        
+        return Response({'status': 'success'}, status=status.HTTP_201_CREATED)
+
+class FixedAssignmentView(APIView):
+    def post(self, request, *args, **kwargs):
+        member_id = request.data.get('member_id')
+        shift_date = request.data.get('shift_date')
+        pattern_id = request.data.get('pattern_id')
+        
+        if not all([member_id, shift_date]):
+            return Response({'error': 'member_id and shift_date are required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Delete any existing generated assignment for this member and date
+        Assignment.objects.filter(member_id=member_id, shift_date=shift_date).delete()
+        
+        # If a pattern_id is provided, create or update the fixed assignment
+        if pattern_id:
+            FixedAssignment.objects.update_or_create(
+                member_id=member_id,
+                shift_date=shift_date,
+                defaults={'shift_pattern_id': pattern_id}
+            )
+        # If no pattern_id is provided (e.g., 'delete' was selected), delete the fixed assignment
+        else:
+            FixedAssignment.objects.filter(member_id=member_id, shift_date=shift_date).delete()
+            
+        return Response(status=status.HTTP_200_OK)
+
+class FixedAssignmentView(APIView):
+    def post(self, request, *args, **kwargs):
+        member_id = request.data.get('member_id')
+        shift_date = request.data.get('shift_date')
+        pattern_id = request.data.get('pattern_id')
+        
+        if not all([member_id, shift_date]):
+            return Response({'error': 'member_id and shift_date are required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if pattern_id:
+            FixedAssignment.objects.update_or_create(
+                member_id=member_id,
+                shift_date=shift_date,
+                defaults={'shift_pattern_id': pattern_id}
+            )
+        else:
+            FixedAssignment.objects.filter(member_id=member_id, shift_date=shift_date).delete()
+            
+        return Response(status=status.HTTP_200_OK)

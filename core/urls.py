@@ -6,7 +6,9 @@ from .views import (
     ShiftPatternListView,
     ManualAssignmentView,
     OtherAssignmentView,
-    DepartmentListView
+    DepartmentListView,
+    BulkFixedAssignmentView,
+    FixedAssignmentView
 )
 
 urlpatterns = [
@@ -17,4 +19,6 @@ urlpatterns = [
     path('generate-shifts/', GenerateShiftView.as_view(), name='generate-shifts'),
     path('manual-assignment/', ManualAssignmentView.as_view(), name='manual-assignment'),
     path('other-assignment/', OtherAssignmentView.as_view(), name='other-assignment'),
+    path('bulk-fixed-assignments/', BulkFixedAssignmentView.as_view(), name='bulk-fixed-assignments'),
+    path('fixed-assignment/', FixedAssignmentView.as_view(), name='fixed-assignment'),
 ]

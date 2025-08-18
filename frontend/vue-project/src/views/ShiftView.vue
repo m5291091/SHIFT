@@ -315,6 +315,52 @@ const isCellSelected = (memberId, date) => {
   const key = `${memberId}-${date}`;
   return selectedCells.value[key];
 };
+
+const confirmSelectedShifts = async () => {
+  const assignmentsToFix = [];
+  for (const key in selectedCells.value) {
+    if (selectedCells.value[key]) {
+      const [memberId, date] = key.split('-');
+      const cell = scheduleGrid.value[memberId]?.[date];
+      // Only assigned or already fixed shifts can be confirmed
+      if (cell && (cell.type === 'assigned' || cell.type === 'fixed') && cell.patternId) {
+        assignmentsToFix.push({
+          member_id: parseInt(memberId),
+          shift_pattern_id: cell.patternId,
+          shift_date: date,
+        });
+      }
+    }
+  }
+
+  if (assignmentsToFix.length === 0) {
+    message.value = '確定するシフトが選択されていません。（生成済みのシフトセルをクリックして選択してください）';
+    return;
+  }
+
+  isLoading.value = true;
+  message.value = '選択されたシフトを固定中...';
+
+  try {
+    await axios.post('http://127.0.0.1:8000/api/v1/bulk-fixed-assignments/', {
+      assignments: assignmentsToFix,
+    });
+    message.value = 'シフトが正常に固定されました。';
+    selectedCells.value = {}; // Clear selection
+    await fetchScheduleData(true); // Refresh all data
+  } catch (error) {
+    message.value = 'シフトの固定に失敗しました。';
+    if (error.response) {
+      console.error('Error fixing shifts:', error.response.data);
+      const errorDetail = JSON.stringify(error.response.data);
+      message.value = `シフトの固定に失敗しました。サーバーエラー: ${errorDetail}`;
+    } else {
+      console.error('Error fixing shifts:', error.message);
+    }
+  } finally {
+    isLoading.value = false;
+  }
+};
 </script>
 
 <template>
@@ -331,6 +377,9 @@ const isCellSelected = (memberId, date) => {
       <input type="date" id="end" v-model="endDate" />
       <button @click="generateShifts" :disabled="isLoading">
         {{ isLoading ? '生成中...' : 'シフトを生成' }}
+      </button>
+      <button @click="confirmSelectedShifts" :disabled="isLoading" style="margin-left: 10px;">
+        選択したシフトを確定
       </button>
     </div>
 
@@ -360,8 +409,16 @@ const isCellSelected = (memberId, date) => {
             </td>
             <td v-for="header in dateHeaders" :key="header.date" 
                 :class="[scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].type : 'empty', { 'selected-cell': isCellSelected(member.id, header.date) }]"
-                :title="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].reason : ''"
-                @click="toggleCellSelection(member.id, header.date)">
+                :title="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] ? scheduleGrid[member.id][header.date].reason : ''">
+              
+              <input 
+                type="checkbox"
+                v-if="scheduleGrid[member.id]?.[header.date]?.type === 'assigned' || scheduleGrid[member.id]?.[header.date]?.type === 'fixed'"
+                :checked="isCellSelected(member.id, header.date)"
+                @change="toggleCellSelection(member.id, header.date)"
+                class="shift-checkbox"
+              />
+
               <select 
                 v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'leave' && scheduleGrid[member.id][header.date].type !== 'fixed'" 
                 :value="scheduleGrid[member.id][header.date].patternId"
@@ -409,15 +466,22 @@ th, td {
   min-width: 100px;
   height: 40px;
   vertical-align: middle;
+  position: relative; /* For checkbox positioning */
 }
 th {
   background-color: #f4f4f4;
   padding: 8px 4px;
 }
+.shift-checkbox {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  z-index: 2;
+}
 td select {
   width: 100%;
   height: 100%;
-  padding: 8px 4px;
+  padding: 8px 4px 8px 25px; /* Make space for checkbox */
   border: none;
   background-color: transparent;
   text-align: center;
@@ -425,6 +489,14 @@ td select {
   -moz-appearance: none;
   appearance: none;
   cursor: pointer;
+  box-sizing: border-box;
+}
+td > span {
+  display: inline-block;
+  width: 100%;
+  padding: 8px 4px 8px 25px; /* Make space for checkbox */
+  box-sizing: border-box;
+  text-align: center;
 }
 .sticky-col {
   position: sticky;
@@ -434,13 +506,13 @@ td select {
   z-index: 1;
   min-width: 150px;
 }
-td.leave { background-color: #fce4e4; color: #9b2c2c; font-weight: bold; padding: 8px 4px; }
+td.leave { background-color: #fce4e4; color: #9b2c2c; font-weight: bold; }
 td.other { background-color: #dbeafe; color: #1e40af; }
 td.assigned { background-color: #e6fffa; }
 td.available { background-color: #edf2f7; }
 td.empty { background-color: #edf2f7; color: #a0aec0; }
-td.infeasible { background-color: #edf2f7; color: #b7791f; font-weight: bold; font-size: 0.9em; padding: 8px 4px;}
-td.fixed { background-color: #cfe2f3; color: #000; font-weight: bold; padding: 8px 4px; }
+td.infeasible { background-color: #edf2f7; color: #b7791f; font-weight: bold; font-size: 0.9em; }
+td.fixed { background-color: #cfe2f3; color: #000; font-weight: bold; }
 
 .selected-cell {
   border: 2px solid #007bff !important; /* Blue border for selected cells */
