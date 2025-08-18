@@ -24,7 +24,7 @@ services:
   - type: static
     name: shift-app-frontend
     env: static
-        buildCommand: "cd frontend/vue-project && npm install && npm run build"
+    buildCommand: "cd frontend/vue-project && npm install && npm run build"
     staticPublishPath: frontend/vue-project/dist
     autoDeploy: true
 
