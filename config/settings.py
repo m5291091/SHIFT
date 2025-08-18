@@ -127,6 +127,11 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+STATIC_ROOT = BASE_DIR / 'staticfiles_build'
+STATICFILES_DIRS = [
+    BASE_DIR / 'frontend' / 'vue-project' / 'dist',
+]
+
 # ファイルの末尾に追加
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",

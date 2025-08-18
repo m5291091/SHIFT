@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: shift-app-backend
+    env: python
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput"
+    startCommand: "gunicorn config.wsgi:application"
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true # Renderが自動生成
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: "shift-app-backend.onrender.com" # Renderのデフォルトドメイン。カスタムドメインを設定する場合は追加
+      - key: DATABASE_URL
+        fromDatabase: shift_app_db
+      - key: WEB_CONCURRENCY
+        value: 4 # Gunicornのワーカー数。インスタンスタイプによる
+    healthCheckPath: /admin/login/ # Django Adminのログインページなど、アプリが起動していることを確認できるパス
+    autoDeploy: true # Gitプッシュ時に自動デプロイ
+
+  - type: web # Vue.jsフロントエンドを静的サイトとしてデプロイする場合
+    name: shift-app-frontend
+    env: static
+    buildCommand: "npm install && npm run build"
+    staticPublishPath: "frontend/vue-project/dist"
+    autoDeploy: true
+
+databases:
+  - name: shift_app_db
+    plan: free # または starter, standardなど
