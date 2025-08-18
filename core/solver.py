@@ -2,7 +2,8 @@ from ortools.sat.python import cp_model
 from .models import (
     Member, ShiftPattern, LeaveRequest, TimeSlotRequirement, Assignment, DayGroup, 
     RelationshipGroup, OtherAssignment, FixedAssignment, SpecificDateRequirement, 
-    SpecificTimeSlotRequirement, MemberShiftPatternPreference, DesignatedHoliday
+    SpecificTimeSlotRequirement, MemberShiftPatternPreference, DesignatedHoliday,
+    SolverSettings, PaidLeave # Added SolverSettings, PaidLeave
 )
 from .serializers import AssignmentSerializer
 from datetime import date, timedelta, datetime, time
@@ -13,6 +14,13 @@ def generate_schedule(department_id, start_date_str, end_date_str):
     # --- 1. データ準備 ---
     start_date = date.fromisoformat(start_date_str)
     end_date = date.fromisoformat(end_date_str)
+
+    # Fetch solver settings for the department
+    try:
+        settings = SolverSettings.objects.get(department_id=department_id)
+    except SolverSettings.DoesNotExist:
+        # If settings don't exist for this department, create default ones
+        settings = SolverSettings.objects.create(department_id=department_id)
     days = [start_date + timedelta(days=i) for i in range((end_date - start_date).days + 1)]
 
     all_members = Member.objects.filter(department_id=department_id).prefetch_related('shift_preferences', 'allowed_day_groups')
@@ -81,16 +89,17 @@ def generate_schedule(department_id, start_date_str, end_date_str):
     # --- 3. 目的関数とペナルティの準備 ---
     total_priority_score = []
     total_penalty_terms = []
-    HEADCOUNT_PENALTY_COST = 10000000
-    HOLIDAY_VIOLATION_PENALTY = 50000
-    INCOMPATIBLE_PENALTY = 60000
-    CONSECUTIVE_WORK_VIOLATION_PENALTY = 45000
-    SALARY_TOO_LOW_PENALTY = 40000
-    SALARY_TOO_HIGH_PENALTY = 30000
-    DIFFICULTY_BONUS_WEIGHT = 10000 
-    WORK_DAY_DEVIATION_PENALTY = 7000
-    PAIRING_BONUS = 5000
-    SHIFT_PREFERENCE_BONUS = 100
+    HEADCOUNT_PENALTY_COST = settings.headcount_penalty_cost
+    HOLIDAY_VIOLATION_PENALTY = settings.holiday_violation_penalty
+    INCOMPATIBLE_PENALTY = settings.incompatible_penalty
+    CONSECUTIVE_WORK_VIOLATION_PENALTY = settings.consecutive_work_violation_penalty
+    SALARY_TOO_LOW_PENALTY = settings.salary_too_low_penalty
+    SALARY_TOO_HIGH_PENALTY = settings.salary_too_high_penalty
+    DIFFICULTY_BONUS_WEIGHT = settings.difficulty_bonus_weight
+    WORK_DAY_DEVIATION_PENALTY = settings.work_day_deviation_penalty
+    PAIRING_BONUS = settings.pairing_bonus
+    SHIFT_PREFERENCE_BONUS = settings.shift_preference_bonus
+    UNAVAILABLE_DAY_PENALTY = settings.unavailable_day_penalty # This was not a constant before, now it is.
 
     for m in all_members:
         num_possible_shifts = 0
@@ -280,6 +289,13 @@ def generate_schedule(department_id, start_date_str, end_date_str):
         for p in all_patterns:
             if (dh.member.id, dh.date, p.id) in shifts:
                 model.Add(shifts[(dh.member.id, dh.date, p.id)] == 0)
+
+    # Constraint for PaidLeave: No shifts on paid leave days
+    paid_leaves = PaidLeave.objects.filter(date__range=[start_date, end_date], member__department_id=department_id)
+    for pl in paid_leaves:
+        for p in all_patterns:
+            if (pl.member.id, pl.date, p.id) in shifts:
+                model.Add(shifts[(pl.member.id, pl.date, p.id)] == 0)
     
     MIN_REST_MINUTES = 8 * 60
     for m in all_members:

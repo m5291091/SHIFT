@@ -9,7 +9,10 @@ from .views import (
     DepartmentListView,
     BulkFixedAssignmentView,
     FixedAssignmentView,
-    DesignatedHolidayView
+    DesignatedHolidayView,
+    SolverSettingsDetailView,
+    SolverSettingsListView,
+    PaidLeaveView # Added
 )
 
 urlpatterns = [
@@ -23,4 +26,7 @@ urlpatterns = [
     path('bulk-fixed-assignments/', BulkFixedAssignmentView.as_view(), name='bulk-fixed-assignments'),
     path('fixed-assignment/', FixedAssignmentView.as_view(), name='fixed-assignment'),
     path('designated-holiday/', DesignatedHolidayView.as_view(), name='designated-holiday'),
+    path('solver-settings/', SolverSettingsListView.as_view(), name='solver-settings-list'),
+    path('solver-settings/<int:department_id>/', SolverSettingsDetailView.as_view(), name='solver-settings-detail'),
+    path('paid-leave/', PaidLeaveView.as_view(), name='paid-leave'), # Added
 ]

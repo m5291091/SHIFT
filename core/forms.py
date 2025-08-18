@@ -62,3 +62,14 @@ class BulkOtherAssignmentForm(forms.Form):
         label="対象日（カレンダーで選択）",
         widget=forms.HiddenInput()
     )
+
+
+class BulkPaidLeaveForm(forms.Form):
+    member = forms.ModelChoiceField(
+        queryset=Member.objects.all(),
+        label="従業員"
+    )
+    dates = forms.CharField(
+        label="有給日（カレンダーで選択）",
+        widget=forms.HiddenInput()
+    )

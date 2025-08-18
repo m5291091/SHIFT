@@ -20,7 +20,9 @@ const infeasibleDays = ref({})
 const earnings = ref({})
 const otherAssignments = ref([])
 const designatedHolidays = ref([]) // New
+const paidLeaves = ref([]) // New
 const selectedCells = ref({}) // New reactive property for multi-selection
+const solverSettings = ref({}) // New reactive property for solver settings
 
 // Modal state
 const isOtherAssignmentModalVisible = ref(false)
@@ -39,6 +41,7 @@ const settingDescriptions = {
   difficulty_bonus_weight: '希望休が多い困難な日にシフトを割り当てた場合のボーナス。高いほど困難な日を埋めることを優先します。',
   pairing_bonus: 'ペアリングメンバーが同時に勤務した場合のボーナス。高いほどペアリングを優先します。',
   shift_preference_bonus: '従業員のシフト希望を尊重した場合のボーナス。高いほど希望を優先します。',
+  unavailable_day_penalty: '勤務不可曜日への割り当てペナルティ。高いほど曜日制約を優先します。', // Added this one
 }
 
 onMounted(async () => {
@@ -62,6 +65,7 @@ watch(selectedDepartment, async (newDepartmentId) => {
       console.error('シフトパターンの取得に失敗しました:', error)
     }
     await fetchScheduleData(true)
+    await fetchSolverSettings(newDepartmentId) // Call new function
   }
 })
 
@@ -117,6 +121,11 @@ const memberStats = computed(() => {
         workDates.add(a.shift_date)
       }
     })
+    paidLeaves.value.forEach((pl) => { // Added
+      if (pl.member === member.id) {
+        workDates.add(pl.date)
+      }
+    })
 
     stats[member.id] = {
       holidays: totalDays - workDates.size,
@@ -168,7 +177,7 @@ const scheduleGrid = computed(() => {
     grid[member.id] = {}
     dateHeaders.value.forEach((header) => {
       // Default to empty cell
-      let cell = { text: '/', type: 'empty', patternId: null }
+      let cell = { text: '', type: 'empty', patternId: null }
 
       // Check for availability (overrides default empty)
       const dayOfWeek = new Date(header.date + 'T00:00:00').getDay()
@@ -198,6 +207,11 @@ const scheduleGrid = computed(() => {
   designatedHolidays.value.forEach((holiday) => {
     if (grid[holiday.member]) {
       grid[holiday.member][holiday.date] = { text: '指定休日', type: 'designated-holiday', patternId: null }
+    }
+  })
+  paidLeaves.value.forEach((pl) => { // Added
+    if (grid[pl.member]) {
+      grid[pl.member][pl.date] = { text: '有給', type: 'paid-leave', patternId: null }
     }
   })
   assignments.value.forEach((a) => {
@@ -258,9 +272,14 @@ const handleShiftChange = async (memberId, date, event) => {
         member_id: memberId,
         date: date,
       })
+    } else if (selectedValue === 'paid-leave') { // Added
+      await axios.post('http://127.0.0.1:8000/api/v1/paid-leave/', {
+        member_id: memberId,
+        date: date,
+      })
     } else {
       const patternId = selectedValue
-      await axios.post('http://127.0.0.1:8000/api/v1/fixed-assignment/', {
+      await axios.post('http://127.00.0.1:8000/api/v1/fixed-assignment/', {
         member_id: memberId,
         shift_date: date,
         pattern_id: patternId,
@@ -362,6 +381,7 @@ const fetchScheduleData = async (shouldFetchAssignments = true) => {
     otherAssignments.value = response.data.other_assignments
     fixedAssignments.value = response.data.fixed_assignments
     designatedHolidays.value = response.data.designated_holidays
+    paidLeaves.value = response.data.paid_leaves // Added
   } catch (error) {
     console.error('スケジュールデータの読み込みに失敗しました:', error)
   }
@@ -479,6 +499,43 @@ const deleteShift = async (memberId, date) => {
     isLoading.value = false
   }
 }
+
+const fetchSolverSettings = async (departmentId) => {
+  try {
+    const response = await axios.get(`http://127.0.0.1:8000/api/v1/solver-settings/${departmentId}/`)
+    solverSettings.value = response.data
+  } catch (error) {
+    console.error('ソルバー設定の取得に失敗しました:', error)
+    // If settings don't exist, initialize with default values or an empty object
+    solverSettings.value = {
+      headcount_penalty_cost: 10000000,
+      holiday_violation_penalty: 50000,
+      incompatible_penalty: 60000,
+      consecutive_work_violation_penalty: 45000,
+      salary_too_low_penalty: 40000,
+      salary_too_high_penalty: 30000,
+      difficulty_bonus_weight: 10000,
+      work_day_deviation_penalty: 7000,
+      pairing_bonus: 5000,
+      shift_preference_bonus: 100,
+      unavailable_day_penalty: 70000,
+    }
+  }
+}
+
+const saveSolverSettings = async () => {
+  isLoading.value = true
+  message.value = 'ソルバー設定を保存中...'
+  try {
+    await axios.put(`http://127.0.0.1:8000/api/v1/solver-settings/${selectedDepartment.value}/`, solverSettings.value)
+    message.value = 'ソルバー設定が保存されました。'
+  } catch (error) {
+    message.value = 'ソルバー設定の保存に失敗しました。'
+    console.error('Error saving solver settings:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
 </script>
 
 <template>
@@ -498,6 +555,18 @@ const deleteShift = async (memberId, date) => {
     />
 
     <p>{{ message }}</p>
+    <hr />
+
+    <div class="solver-settings-section">
+      <h2>ソルバー設定</h2>
+      <div class="settings-grid">
+        <div v-for="(value, key) in solverSettings" :key="key" class="setting-item">
+          <label :for="key">{{ settingDescriptions[key] || key }}</label>
+          <input type="number" :id="key" v-model.number="solverSettings[key]" />
+        </div>
+      </div>
+      <button @click="saveSolverSettings" :disabled="isLoading">設定を保存</button>
+    </div>
     <hr />
 
     <h2>生成結果</h2>
@@ -554,17 +623,23 @@ const deleteShift = async (memberId, date) => {
               </button>
 
               <select
-                v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'leave'"
-                :value="scheduleGrid[member.id][header.date].patternId"
+                v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'leave' && scheduleGrid[member.id][header.date].type !== 'paid-leave'"
+                :value="scheduleGrid[member.id][header.date].type === 'assigned' || scheduleGrid[member.id][header.date].type === 'fixed' ? scheduleGrid[member.id][header.date].patternId : scheduleGrid[member.id][header.date].type"
                 @change="handleShiftChange(member.id, header.date, $event)"
               >
-                <option :value="scheduleGrid[member.id][header.date].patternId" selected disabled>{{ scheduleGrid[member.id][header.date].text }}</option>
+                <option 
+                  :value="scheduleGrid[member.id][header.date].type === 'assigned' || scheduleGrid[member.id][header.date].type === 'fixed' ? scheduleGrid[member.id][header.date].patternId : scheduleGrid[member.id][header.date].type" 
+                  selected disabled
+                >
+                  {{ scheduleGrid[member.id][header.date].text }}
+                </option>
                 <option v-if="scheduleGrid[member.id]?.[header.date]?.patternId" value="">（削除）</option>
                 <option v-for="pattern in getAssignablePatternsForMember(member)" :key="pattern.id" :value="pattern.id">
                   {{ pattern.pattern_name }}
                 </option>
                 <option value="other">その他...</option>
                 <option value="designated-holiday">指定休日</option>
+                <option value="paid-leave">有給</option> <!-- Added -->
               </select>
               <span v-else-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date]">{{ scheduleGrid[member.id][header.date].text }}</span>
             </td>
@@ -698,9 +773,14 @@ td.fixed {
   color: #000;
   font-weight: bold;
 }
-.designated-holiday {
+td.designated-holiday {
   background-color: #e8daff;
   color: #581c87;
+  font-weight: bold;
+}
+td.paid-leave { /* Added */
+  background-color: #d4edda;
+  color: #155724;
   font-weight: bold;
 }
 
@@ -737,6 +817,62 @@ tfoot {
 .headcount-surplus {
   background-color: #fff3e0;
   color: #ef6c00;
+}
+
+.solver-settings-section {
+  margin-top: 20px;
+  padding: 20px;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  background-color: #f9f9f9;
+}
+
+.solver-settings-section h2 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.setting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.setting-item label {
+  font-weight: bold;
+  color: #555;
+  font-size: 0.9em;
+}
+
+.setting-item input[type="number"] {
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.solver-settings-section button {
+  padding: 10px 20px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1em;
+}
+
+.solver-settings-section button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
 }
 </style>
 

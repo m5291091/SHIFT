@@ -4,8 +4,8 @@ from rest_framework.response import Response
 from datetime import date, datetime, time, timedelta
 from collections import defaultdict
 
-from .models import Member, Assignment, LeaveRequest, MemberAvailability, ShiftPattern, OtherAssignment, TimeSlotRequirement, FixedAssignment, Department, DesignatedHoliday
-from .serializers import MemberSerializer, AssignmentSerializer, MemberAvailabilitySerializer, ShiftPatternSerializer, OtherAssignmentSerializer, FixedAssignmentSerializer, DepartmentSerializer, DesignatedHolidaySerializer
+from .models import Member, Assignment, LeaveRequest, MemberAvailability, ShiftPattern, OtherAssignment, TimeSlotRequirement, FixedAssignment, Department, DesignatedHoliday, SolverSettings, PaidLeave
+from .serializers import MemberSerializer, AssignmentSerializer, MemberAvailabilitySerializer, ShiftPatternSerializer, OtherAssignmentSerializer, FixedAssignmentSerializer, DepartmentSerializer, DesignatedHolidaySerializer, SolverSettingsSerializer, PaidLeaveSerializer
 from .solver import generate_schedule
 
 class DepartmentListView(generics.ListAPIView):
@@ -88,6 +88,12 @@ class ScheduleDataView(APIView):
         )
         designated_holiday_serializer = DesignatedHolidaySerializer(designated_holidays, many=True)
 
+        paid_leaves = PaidLeave.objects.filter(
+            date__range=[start_date, end_date],
+            member__department_id=department_id
+        ).select_related('member')
+        paid_leave_serializer = PaidLeaveSerializer(paid_leaves, many=True)
+
         earnings_map = defaultdict(float)
         premium_start, premium_end = time(22, 0), time(5, 0)
         for assign in assignments:
@@ -109,6 +115,11 @@ class ScheduleDataView(APIView):
                 earnings = (normal_minutes * assign.member.hourly_wage) + (premium_minutes * assign.member.hourly_wage * 1.25)
                 earnings_map[assign.member.id] += earnings / 60
         
+        # Add earnings for paid leaves
+        for pl in paid_leaves:
+            if pl.member.employee_type == 'hourly' and pl.member.hourly_wage:
+                earnings_map[pl.member.id] += (pl.hours * pl.member.hourly_wage)
+        
         return Response({
             'assignments': assignment_serializer.data,
             'fixed_assignments': fixed_assignment_serializer.data,
@@ -117,6 +128,7 @@ class ScheduleDataView(APIView):
             'availabilities': availability_serializer.data,
             'other_assignments': other_serializer.data,
             'designated_holidays': designated_holiday_serializer.data,
+            'paid_leaves': paid_leave_serializer.data, # Added
             'earnings': {k: round(v) for k, v in earnings_map.items()},
         })
 
@@ -139,6 +151,7 @@ class ManualAssignmentView(APIView):
         member = Member.objects.get(id=member_id)
 
         DesignatedHoliday.objects.filter(member_id=member_id, date=shift_date).delete()
+        PaidLeave.objects.filter(member_id=member_id, date=shift_date).delete() # Added
         
         Assignment.objects.filter(
             member_id=member_id, 
@@ -163,6 +176,7 @@ class OtherAssignmentView(APIView):
         member = Member.objects.get(id=member_id)
 
         DesignatedHoliday.objects.filter(member_id=member_id, date=shift_date).delete()
+        PaidLeave.objects.filter(member_id=member_id, date=shift_date).delete() # Added
         
         Assignment.objects.filter(
             member_id=member_id, 
@@ -208,6 +222,7 @@ class FixedAssignmentView(APIView):
             return Response({'error': 'member_id and shift_date are required'}, status=status.HTTP_400_BAD_REQUEST)
 
         DesignatedHoliday.objects.filter(member_id=member_id, date=shift_date).delete()
+        PaidLeave.objects.filter(member_id=member_id, date=shift_date).delete() # Added
         
         # Delete any existing generated assignment for this member and date
         Assignment.objects.filter(member_id=member_id, shift_date=shift_date).delete()
@@ -245,8 +260,60 @@ class DesignatedHolidayView(APIView):
             Assignment.objects.filter(member_id=member_id, shift_date=date).delete()
             FixedAssignment.objects.filter(member_id=member_id, shift_date=date).delete()
             OtherAssignment.objects.filter(member_id=member_id, shift_date=date).delete()
+            PaidLeave.objects.filter(member_id=member_id, date=date).delete() # Added
             action = "created"
         else:
             action = "already_exists"
             
         return Response({'status': f'holiday {action}'}, status=status.HTTP_200_OK)
+
+
+class PaidLeaveView(APIView):
+    def post(self, request, *args, **kwargs):
+        member_id = request.data.get('member_id')
+        date = request.data.get('date')
+
+        if not all([member_id, date]):
+            return Response({'error': 'member_id and date are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Delete any other assignments for this member and date
+        Assignment.objects.filter(member_id=member_id, shift_date=date).delete()
+        FixedAssignment.objects.filter(member_id=member_id, shift_date=date).delete()
+        OtherAssignment.objects.filter(member_id=member_id, shift_date=date).delete()
+        DesignatedHoliday.objects.filter(member_id=member_id, date=date).delete()
+        LeaveRequest.objects.filter(member_id=member_id, leave_date=date).delete() # Also remove LeaveRequest if it exists
+
+        # Create or get the PaidLeave
+        paid_leave, created = PaidLeave.objects.get_or_create(
+            member_id=member_id,
+            date=date
+        )
+
+        if created:
+            action = "created"
+        else:
+            action = "already_exists"
+            
+        return Response({'status': f'paid_leave {action}'}, status=status.HTTP_200_OK)
+
+    def delete(self, request, *args, **kwargs):
+        member_id = request.data.get('member_id')
+        date = request.data.get('date')
+
+        if not all([member_id, date]):
+            return Response({'error': 'member_id and date are required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        deleted_count, _ = PaidLeave.objects.filter(member_id=member_id, date=date).delete()
+        if deleted_count > 0:
+            return Response({'status': 'deleted'}, status=status.HTTP_200_OK)
+        return Response({'status': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+class SolverSettingsDetailView(generics.RetrieveUpdateAPIView):
+    queryset = SolverSettings.objects.all()
+    serializer_class = SolverSettingsSerializer
+    lookup_field = 'department_id' # Use department_id as the lookup field
+
+class SolverSettingsListView(generics.ListCreateAPIView):
+    queryset = SolverSettings.objects.all()
+    serializer_class = SolverSettingsSerializer

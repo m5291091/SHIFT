@@ -250,6 +250,20 @@ class DesignatedHoliday(models.Model):
         return f"{self.member.name} - {self.date}"
 
 
+class PaidLeave(models.Model):
+    member = models.ForeignKey('Member', on_delete=models.CASCADE, verbose_name="従業員")
+    date = models.DateField("日付")
+    hours = models.IntegerField("時間数", default=8, help_text="有給としてカウントされる時間数")
+
+    class Meta:
+        verbose_name = "有給"
+        verbose_name_plural = "有給"
+        unique_together = ('member', 'date')
+
+    def __str__(self):
+        return f"{self.member.name} - {self.date} (有給)"
+
+
 class SpecificDateRequirement(models.Model):
     department = models.ForeignKey(Department, on_delete=models.CASCADE, verbose_name="部門")
     date = models.DateField("日付")
@@ -280,3 +294,31 @@ class SpecificTimeSlotRequirement(models.Model):
 
     def __str__(self):
         return f"{self.department.name} / {self.date} ({self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')}): {self.min_headcount}人"
+
+
+class SolverSettings(models.Model):
+    department = models.OneToOneField(
+        Department,
+        on_delete=models.CASCADE,
+        primary_key=True,
+        verbose_name="部門",
+        help_text="この設定が適用される部門"
+    )
+    headcount_penalty_cost = models.IntegerField("人数不足ペナルティ", default=10000000)
+    holiday_violation_penalty = models.IntegerField("休日制約違反ペナルティ", default=50000)
+    incompatible_penalty = models.IntegerField("相性違反ペナルティ", default=60000)
+    consecutive_work_violation_penalty = models.IntegerField("連続勤務違反ペナルティ", default=45000)
+    salary_too_low_penalty = models.IntegerField("最低給与未達ペナルティ", default=40000)
+    salary_too_high_penalty = models.IntegerField("最高給与超過ペナルティ", default=30000)
+    difficulty_bonus_weight = models.IntegerField("困難日ボーナス重み", default=10000)
+    work_day_deviation_penalty = models.IntegerField("勤務日数偏りペナルティ", default=7000)
+    pairing_bonus = models.IntegerField("ペアリングボーナス", default=5000)
+    shift_preference_bonus = models.IntegerField("シフト希望ボーナス", default=100)
+    unavailable_day_penalty = models.IntegerField("勤務不可曜日ペナルティ", default=70000)
+
+    class Meta:
+        verbose_name = "ソルバー設定"
+        verbose_name_plural = "ソルバー設定"
+
+    def __str__(self):
+        return f"{self.department.name} のソルバー設定"

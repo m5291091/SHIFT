@@ -1,12 +1,12 @@
 from django.contrib import admin
 from django.urls import path, reverse
 from django.shortcuts import render, redirect
-from .forms import BulkLeaveRequestForm, BulkUpdateMinDaysOffForm, BulkAssignmentForm, BulkFixedAssignmentForm, BulkOtherAssignmentForm
+from .forms import BulkLeaveRequestForm, BulkUpdateMinDaysOffForm, BulkAssignmentForm, BulkFixedAssignmentForm, BulkOtherAssignmentForm, BulkPaidLeaveForm # Added
 from .models import (
     Member, Skill, DayGroup, MemberSkill, ShiftPattern, MemberAvailability,
     LeaveRequest, TimeSlotRequirement, RelationshipGroup, GroupMember, Assignment, OtherAssignment,
     FixedAssignment, SpecificDateRequirement, SpecificTimeSlotRequirement, MemberShiftPatternPreference,
-    Department, DesignatedHoliday
+    Department, DesignatedHoliday, PaidLeave # Added PaidLeave
 )
 
 @admin.register(Department)
@@ -223,7 +223,55 @@ class SpecificTimeSlotRequirementAdmin(admin.ModelAdmin):
 @admin.register(DesignatedHoliday)
 class DesignatedHolidayAdmin(admin.ModelAdmin):
     list_display = ('member', 'date')
-    list_filter = ('member__department', 'member')
+    list_filter = ('member__department', 'member',)
+
+
+@admin.register(PaidLeave)
+class PaidLeaveAdmin(admin.ModelAdmin):
+    list_display = ('member', 'date', 'hours')
+    list_filter = ('member__department', 'member',)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path('bulk-add/', self.admin_site.admin_view(self.bulk_add_view), name='core_paidleave_bulk_add'),
+        ]
+        return custom_urls + urls
+
+    def bulk_add_view(self, request):
+        if request.method == 'POST':
+            form = BulkPaidLeaveForm(request.POST)
+            if form.is_valid():
+                member = form.cleaned_data['member']
+                dates_str = form.cleaned_data['dates']
+                dates = dates_str.split(',')
+                
+                count = 0
+                for date_str in dates:
+                    if not date_str: continue
+                    PaidLeave.objects.update_or_create(
+                        member=member, 
+                        date=date_str,
+                        defaults={'hours': 8} # Default to 8 hours for paid leave
+                    )
+                    count += 1
+                
+                self.message_user(request, f"{count}件の有給を登録・更新しました。")
+                return redirect('admin:core_paidleave_changelist')
+        else:
+            form = BulkPaidLeaveForm()
+
+        context = dict(
+           self.admin_site.each_context(request),
+           form=form,
+           title="有給の一括登録"
+        )
+        return render(request, 'admin/core/paidleave/bulk_add_form.html', context)
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context['bulk_add_url'] = reverse('admin:core_paidleave_bulk_add')
+        return super().changelist_view(request, extra_context)
 
 # --- モデルの登録 ---
 admin.site.register(Member, MemberAdmin)

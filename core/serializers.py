@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import (
-    Member, Assignment, ShiftPattern, MemberAvailability, OtherAssignment, FixedAssignment, Department, DesignatedHoliday
+    Member, Assignment, ShiftPattern, MemberAvailability, OtherAssignment, FixedAssignment, Department, DesignatedHoliday, SolverSettings, PaidLeave
 )
 
 class DepartmentSerializer(serializers.ModelSerializer):
@@ -61,4 +61,16 @@ class OtherAssignmentSerializer(serializers.ModelSerializer):
 class DesignatedHolidaySerializer(serializers.ModelSerializer):
     class Meta:
         model = DesignatedHoliday
+        fields = '__all__'
+
+
+class SolverSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SolverSettings
+        exclude = ('department',)
+
+
+class PaidLeaveSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaidLeave
         fields = '__all__'
