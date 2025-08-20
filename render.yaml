@@ -22,7 +22,7 @@ services:
           name: shift-app-db
           property: connectionString
       - key: WEB_CONCURRENCY
-        value: 4 # インスタンスタイプに応じて調整
+        value: 1 # インスタンスタイプに応じて調整
 
     healthCheckPath: /admin/login/ # アプリが起動しているか確認できるパス
     autoDeploy: true
