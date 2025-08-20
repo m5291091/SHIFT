@@ -9,5 +9,6 @@ const app = createApp(App)
 
 app.use(router)
 app.config.globalProperties.$axios = axiosInstance; // Make axios available globally via $axios
+app.provide('axios', axiosInstance); // Provide it for Composition API injection
 
 app.mount('#app')
