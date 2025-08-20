@@ -8,7 +8,7 @@ const members = ref([]) // 従業員リストを保存する場所
 onMounted(async () => {
   try {
     // DjangoのAPIにアクセスしてデータを取得
-    const response = await axios.get('http://127.0.0.1:8000/api/v1/members/')
+    const response = await this.$axios.get('/members/')
     members.value = response.data // 取得したデータを保存
   } catch (error) {
     console.error('データの取得に失敗しました:', error)
