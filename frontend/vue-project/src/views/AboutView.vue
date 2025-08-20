@@ -1,6 +1,5 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import axios from 'axios'
 
 const members = ref([]) // 従業員リストを保存する場所
 

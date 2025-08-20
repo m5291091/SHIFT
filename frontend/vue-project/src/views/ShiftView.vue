@@ -1,6 +1,5 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import axios from 'axios'
 import OtherAssignmentModal from '@/components/OtherAssignmentModal.vue'
 import ShiftControlHeader from '@/components/ShiftControlHeader.vue'
 
