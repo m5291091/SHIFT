@@ -1,8 +1,11 @@
 services:
+  # ===================================
+  # Backend Service (Python/Django)
+  # ===================================
   - type: web
     name: shift-app-backend
     env: python
-    plan: free
+    plan: free # 必要に応じて変更 (e.g., starter)
     buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput"
     startCommand: "gunicorn config.wsgi:application"
     envVars:
@@ -11,23 +14,30 @@ services:
       - key: DEBUG
         value: False
       - key: ALLOWED_HOSTS
-        value: "shift-app-backend.onrender.com" # Renderのデフォルトドメイン。カスタムドメインを設定する場合は追加
+        value: "shift-app-backend.onrender.com" # Renderのドメイン。カスタムドメイン使用時は追加
       - key: DATABASE_URL
         fromDatabase:
           name: shift-app-db
           property: connectionString
       - key: WEB_CONCURRENCY
-        value: 4 # Gunicornのワーカー数。インスタンスタイプによる
-    healthCheckPath: /admin/login/ # Django Adminのログインページなど、アプリが起動していることを確認できるパス
-    autoDeploy: true # Gitプッシュ時に自動デプロイ
+        value: 4 # インスタンスタイプに応じて調整
 
-  - type: static
-    name: shift-app-frontend
-    env: static
-    buildCommand: "cd frontend/vue-project && npm install && npm run build"
-    staticPublishPath: frontend/vue-project/dist
+    healthCheckPath: /admin/login/ # アプリが起動しているか確認できるパス
     autoDeploy: true
 
+  # ===================================
+  # Frontend Service (Static Site)
+  # ===================================
+  - type: web
+    name: shift-app-frontend
+    runtime: static # 静的サイトであることを指定
+    buildCommand: "cd frontend/vue-project && npm install && npm run build"
+    staticPublishPath: ./frontend/vue-project/dist # ビルド成果物が格納されるディレクトリ
+    autoDeploy: true
+
+# ===================================
+# Database Service (PostgreSQL)
+# ===================================
 databases:
   - name: shift-app-db
-    plan: free # または starter, standardなど
+    plan: free # 必要に応じて変更 (e.g., starter)
