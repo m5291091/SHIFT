@@ -5,8 +5,6 @@ import ShiftControlHeader from '@/components/ShiftControlHeader.vue'
 
 const axios = inject('axios'); // Inject the provided axios instance
 
-const axios = inject('axios'); // Inject the provided axios instance
-
 const departments = ref([])
 const selectedDepartment = ref(null)
 const startDate = ref('')
