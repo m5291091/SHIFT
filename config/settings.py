@@ -27,13 +27,11 @@ SECRET_KEY = 'django-insecure-i%jyzc0aly1sq!$^31yp&x0bgeg=yl*&09#xf$t$x$qfckeuk*
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = []
-if not DEBUG:
-    ALLOWED_HOSTS_ENV = os.environ.get('ALLOWED_HOSTS')
-    if ALLOWED_HOSTS_ENV:
-        ALLOWED_HOSTS = ALLOWED_HOSTS_ENV.split(',')
-    else:
-        pass
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'shift-app-backend.onrender.com').split(',')
+
+# 開発モードの場合はローカルホストを追加
+if DEBUG:
+    ALLOWED_HOSTS.extend(['localhost', '127.0.0.1'])
 
 
 # Application definition

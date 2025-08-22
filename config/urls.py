@@ -29,7 +29,3 @@ if settings.DEBUG:
         re_path(r'^static/(?P<path>.*)$', serve, {'document_root': settings.STATIC_ROOT}),
     ]
 
-# Catch-all for Vue.js app
-urlpatterns += [
-    re_path(r'.*$', serve, {'document_root': settings.STATIC_ROOT, 'path': 'index.html'}),
-]

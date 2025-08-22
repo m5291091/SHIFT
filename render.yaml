@@ -30,12 +30,15 @@ services:
   # ===================================
   # Frontend Service (Static Site)
   # ===================================
-  - type: web
+  - type: static
     name: shift-app-frontend
-    runtime: static # 静的サイトであることを指定
     buildCommand: "cd frontend/vue-project && VITE_API_BASE_URL=https://shift-app-backend.onrender.com/api/v1/ npm install && npm run build"
-    staticPublishPath: ./frontend/vue-project/dist # ビルド成果物が格納されるディレクトリ
+    staticPublishPath: ./frontend/vue-project/dist
     autoDeploy: true
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
 
 # ===================================
 # Database Service (PostgreSQL)
