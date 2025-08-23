@@ -3,7 +3,7 @@ from django.urls import path, reverse
 from django.shortcuts import render, redirect
 from .forms import BulkLeaveRequestForm, BulkUpdateMinDaysOffForm, BulkAssignmentForm, BulkFixedAssignmentForm, BulkOtherAssignmentForm, BulkPaidLeaveForm # Added
 from .models import (
-    Member, Skill, DayGroup, MemberSkill, ShiftPattern, MemberAvailability,
+    Member, DayGroup, ShiftPattern, MemberAvailability,
     LeaveRequest, TimeSlotRequirement, RelationshipGroup, GroupMember, Assignment, OtherAssignment,
     FixedAssignment, SpecificDateRequirement, SpecificTimeSlotRequirement, MemberShiftPatternPreference,
     Department, DesignatedHoliday, PaidLeave, SolverSettings # Added PaidLeave, SolverSettings
@@ -285,9 +285,7 @@ admin.site.register(LeaveRequest, LeaveRequestAdmin)
 admin.site.register(TimeSlotRequirement, TimeSlotRequirementAdmin)
 admin.site.register(Assignment, AssignmentAdmin)
 
-admin.site.register(Skill)
-admin.site.register(DayGroup)
-admin.site.register(MemberSkill)
+
 admin.site.register(MemberAvailability)
 admin.site.register(RelationshipGroup)
 admin.site.register(GroupMember)

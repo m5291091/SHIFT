@@ -202,26 +202,9 @@ class OtherAssignment(models.Model):
     def __str__(self):
         return f"{self.shift_date} {self.member.name}: {self.activity_name}"
 
-class Skill(models.Model):
-    skill_name = models.CharField("スキル名", max_length=100, unique=True)
-    
-    class Meta:
-        verbose_name = "スキル"
-        verbose_name_plural = "1. 基本設定 - スキル"
 
-    def __str__(self):
-        return self.skill_name
 
-class MemberSkill(models.Model):
-    member = models.ForeignKey(Member, on_delete=models.CASCADE, verbose_name="従業員")
-    skill = models.ForeignKey(Skill, on_delete=models.CASCADE, verbose_name="スキル")
 
-    class Meta:
-        verbose_name = "保有スキル"
-        verbose_name_plural = "2. 従業員管理 - 保有スキル"
-
-    def __str__(self):
-        return f"{self.member.name}: {self.skill.skill_name}"
 
 class FixedAssignment(models.Model):
     member = models.ForeignKey(Member, on_delete=models.CASCADE, verbose_name="従業員")
