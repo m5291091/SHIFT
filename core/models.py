@@ -5,7 +5,7 @@ class Department(models.Model):
 
     class Meta:
         verbose_name = "部門"
-        verbose_name_plural = "1. 基本設定 - 部門"
+        verbose_name_plural = "02. 部門"
 
     def __str__(self):
         return self.name
@@ -17,7 +17,7 @@ class MemberShiftPatternPreference(models.Model):
 
     class Meta:
         verbose_name = "シフトパターン優先度"
-        verbose_name_plural = "2. 従業員管理 - シフトパターン優先度"
+        verbose_name_plural = "99. シフトパターン優先度"
         unique_together = ('member', 'shift_pattern')
         ordering = ['member', 'priority']
 
@@ -70,7 +70,7 @@ class Member(models.Model):
 
     class Meta:
         verbose_name = "従業員"
-        verbose_name_plural = "2. 従業員管理 - 従業員"
+        verbose_name_plural = "01. 従業員"
 
     def __str__(self):
         return f"{self.department.name} - {self.name}"
@@ -87,7 +87,7 @@ class ShiftPattern(models.Model):
 
     class Meta:
         verbose_name = "シフトパターン"
-        verbose_name_plural = "3. シフトパターン・要件 - シフトパターン"
+        verbose_name_plural = "05. シフトパターン"
 
     def __str__(self):
         return f"{self.department.name} / {self.pattern_name} ({self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')})"
@@ -104,7 +104,7 @@ class DayGroup(models.Model):
 
     class Meta:
         verbose_name = "曜日グループ"
-        verbose_name_plural = "1. 基本設定 - 曜日グループ"
+        verbose_name_plural = "03. 曜日グループ"
 
     def __str__(self):
         return self.group_name
@@ -119,7 +119,7 @@ class TimeSlotRequirement(models.Model):
 
     class Meta:
         verbose_name = "時間帯別必要人数"
-        verbose_name_plural = "3. シフトパターン・要件 - 時間帯別必要人数"
+        verbose_name_plural = "06. 時間帯別必要人数"
 
     def __str__(self):
         return f"{self.department.name} / {self.day_group.group_name} ({self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')}): {self.min_headcount}人"
@@ -136,7 +136,7 @@ class MemberAvailability(models.Model):
     
     class Meta:
         verbose_name = "勤務可能条件"
-        verbose_name_plural = "2. 従業員管理 - 勤務可能条件"
+        verbose_name_plural = "04. 勤務可能条件"
 
     def __str__(self):
         return f"{self.member.name} - {self.get_day_of_week_display()}"
@@ -149,7 +149,7 @@ class LeaveRequest(models.Model):
     
     class Meta:
         verbose_name = "希望休"
-        verbose_name_plural = "4. シフト実績・申請 - 希望休"
+        verbose_name_plural = "11. 希望休"
 
     def __str__(self):
         return f"{self.member.name} - {self.leave_date}"
@@ -161,7 +161,7 @@ class RelationshipGroup(models.Model):
     
     class Meta:
         verbose_name = "関係性グループ"
-        verbose_name_plural = "5. ソルバー・ルール設定 - 関係性グループ"
+        verbose_name_plural = "09. 関係性グループ"
 
     def __str__(self):
         return self.group_name
@@ -172,7 +172,7 @@ class GroupMember(models.Model):
     
     class Meta:
         verbose_name = "グループ所属メンバー"
-        verbose_name_plural = "5. ソルバー・ルール設定 - グループ所属メンバー"
+        verbose_name_plural = "10. グループ所属メンバー"
 
     def __str__(self):
         return f"{self.group.group_name} - {self.member.name}"
@@ -184,7 +184,7 @@ class Assignment(models.Model):
     
     class Meta:
         verbose_name = "確定シフト"
-        verbose_name_plural = "4. シフト実績・申請 - 確定シフト"
+        verbose_name_plural = "16. 確定シフト"
 
     def __str__(self):
         return f"{self.shift_date} {self.member.name} ({self.shift_pattern.pattern_name})"
@@ -196,7 +196,7 @@ class OtherAssignment(models.Model):
 
     class Meta:
         verbose_name = "その他の割り当て"
-        verbose_name_plural = "4. シフト実績・申請 - その他の割り当て"
+        verbose_name_plural = "14. その他の割り当て"
         unique_together = ('member', 'shift_date')
 
     def __str__(self):
@@ -213,7 +213,7 @@ class FixedAssignment(models.Model):
 
     class Meta:
         verbose_name = "固定シフト"
-        verbose_name_plural = "4. シフト実績・申請 - 固定シフト"
+        verbose_name_plural = "13. 固定シフト"
         unique_together = ('member', 'shift_date')
 
     def __str__(self):
@@ -226,7 +226,7 @@ class DesignatedHoliday(models.Model):
 
     class Meta:
         verbose_name = "指定休日"
-        verbose_name_plural = "4. シフト実績・申請 - 指定休日"
+        verbose_name_plural = "15. 指定休日"
         unique_together = ('member', 'date')
 
     def __str__(self):
@@ -240,7 +240,7 @@ class PaidLeave(models.Model):
 
     class Meta:
         verbose_name = "有給"
-        verbose_name_plural = "4. シフト実績・申請 - 有給"
+        verbose_name_plural = "12. 有給"
         unique_together = ('member', 'date')
 
     def __str__(self):
@@ -256,7 +256,7 @@ class SpecificDateRequirement(models.Model):
 
     class Meta:
         verbose_name = "特定日別シフト必要人数"
-        verbose_name_plural = "3. シフトパターン・要件 - 特定日別シフト必要人数"
+        verbose_name_plural = "07. 特定日別シフト必要人数"
         unique_together = ('date', 'shift_pattern')
 
     def __str__(self):
@@ -272,7 +272,7 @@ class SpecificTimeSlotRequirement(models.Model):
 
     class Meta:
         verbose_name = "特定日別時間帯必要人数"
-        verbose_name_plural = "3. シフトパターン・要件 - 特定日別時間帯必要人数"
+        verbose_name_plural = "08. 特定日別時間帯必要人数"
         ordering = ['date', 'start_time']
 
     def __str__(self):
@@ -302,7 +302,7 @@ class SolverSettings(models.Model):
 
     class Meta:
         verbose_name = "ソルバー設定"
-        verbose_name_plural = "5. ソルバー・ルール設定 - ソルバー設定"
+        verbose_name_plural = "98. ソルバー設定"
 
     def __str__(self):
         return f"{self.department.name} のソルバー設定"
