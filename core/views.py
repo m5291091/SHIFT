@@ -46,7 +46,7 @@ class ScheduleDataView(APIView):
                 'members': member_serializer.data,
                 'assignments': [], 'leave_requests': [], 'availabilities': [],
                 'other_assignments': [], 'earnings': {},
-                'fixed_assignments': [], 'designated_holidays': [],
+                'fixed_assignments': [], 'designated_holidays': [], 'paid_leaves': [],
             })
 
         start_date = date.fromisoformat(start_date_str)
