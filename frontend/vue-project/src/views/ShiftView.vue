@@ -646,6 +646,65 @@ const confirmSelectedShifts = async () => {
   }
 }
 
+const deleteSelectedShifts = async () => {
+  const assignmentIdsToDelete = []
+  const fixedAssignmentIdsToDelete = []
+
+  for (const key in selectedCells.value) {
+    if (selectedCells.value[key]) {
+      const [memberId, date] = key.split('_')
+      const cell = scheduleGrid.value[memberId]?.[date]
+
+      if (cell) {
+        if (cell.type === 'assigned') {
+          const assignment = assignments.value.find(a => a.member_id == memberId && a.shift_date == date)
+          if (assignment) {
+            assignmentIdsToDelete.push(assignment.id)
+          }
+        } else if (cell.type === 'fixed') {
+          const fixedAssignment = fixedAssignments.value.find(a => a.member_id == memberId && a.shift_date == date)
+          if (fixedAssignment) {
+            fixedAssignmentIdsToDelete.push(fixedAssignment.id)
+          }
+        }
+      }
+    }
+  }
+
+  if (assignmentIdsToDelete.length === 0 && fixedAssignmentIdsToDelete.length === 0) {
+    message.value = '削除するシフトが選択されていません。（シフトセルをクリックして選択してください）'
+    return
+  }
+
+  if (!confirm('選択されたシフトを削除してもよろしいですか？')) {
+    return
+  }
+
+  isLoading.value = true
+  message.value = '選択されたシフトを削除中...'
+
+  try {
+    const deletePromises = []
+    if (assignmentIdsToDelete.length > 0) {
+      deletePromises.push(axios.post('/bulk-delete-assignments/', { assignment_ids: assignmentIdsToDelete }))
+    }
+    if (fixedAssignmentIdsToDelete.length > 0) {
+      deletePromises.push(axios.post('/bulk-delete-fixed-assignments/', { fixed_assignment_ids: fixedAssignmentIdsToDelete }))
+    }
+
+    await Promise.all(deletePromises)
+
+    message.value = '選択されたシフトが削除されました。'
+    selectedCells.value = {} // Clear selection
+    await fetchScheduleData(true) // Refresh all data
+  } catch (error) {
+    message.value = 'シフトの削除に失敗しました。'
+    console.error('Error deleting shifts:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
+
 const deleteShift = async (memberId, date) => {
   if (!confirm('このシフトを削除してもよろしいですか？')) {
     // ユーザーがキャンセルした場合、セレクトボックスの表示を元に戻すためにデータを再取得
@@ -722,6 +781,7 @@ const saveSolverSettings = async () => {
       :isLoading="isLoading"
       @generate-shifts="generateShifts"
       @confirm-selected-shifts="confirmSelectedShifts"
+      @delete-selected-shifts="deleteSelectedShifts"
     />
 
     <p>{{ message }}</p>

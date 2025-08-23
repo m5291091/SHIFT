@@ -317,3 +317,24 @@ class SolverSettingsDetailView(generics.RetrieveUpdateAPIView):
 class SolverSettingsListView(generics.ListCreateAPIView):
     queryset = SolverSettings.objects.all()
     serializer_class = SolverSettingsSerializer
+
+
+class BulkAssignmentDeleteView(APIView):
+    def post(self, request, *args, **kwargs):
+        assignment_ids = request.data.get('assignment_ids', [])
+        if not assignment_ids:
+            return Response({'error': 'No assignment IDs provided'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        Assignment.objects.filter(id__in=assignment_ids).delete()
+        
+        return Response({'status': 'success'}, status=status.HTTP_200_OK)
+
+class BulkFixedAssignmentDeleteView(APIView):
+    def post(self, request, *args, **kwargs):
+        fixed_assignment_ids = request.data.get('fixed_assignment_ids', [])
+        if not fixed_assignment_ids:
+            return Response({'error': 'No fixed assignment IDs provided'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        FixedAssignment.objects.filter(id__in=fixed_assignment_ids).delete()
+        
+        return Response({'status': 'success'}, status=status.HTTP_200_OK)

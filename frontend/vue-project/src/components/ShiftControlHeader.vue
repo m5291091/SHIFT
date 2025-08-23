@@ -13,6 +13,7 @@ const emit = defineEmits([
   'update:endDate',
   'generate-shifts',
   'confirm-selected-shifts',
+  'delete-selected-shifts',
 ])
 
 const handleDepartmentChange = (event) => {
@@ -34,6 +35,10 @@ const onGenerateShifts = () => {
 const onConfirmSelectedShifts = () => {
   emit('confirm-selected-shifts')
 }
+
+const onDeleteSelectedShifts = () => {
+  emit('delete-selected-shifts')
+}
 </script>
 
 <template>
@@ -51,6 +56,9 @@ const onConfirmSelectedShifts = () => {
     </button>
     <button @click="onConfirmSelectedShifts" :disabled="isLoading" style="margin-left: 10px;">
       選択したシフトを確定
+    </button>
+    <button @click="onDeleteSelectedShifts" :disabled="isLoading" style="margin-left: 10px; background-color: #dc3545; color: white;">
+      選択したシフトを削除
     </button>
   </div>
 </template>

@@ -111,6 +111,12 @@ class TimeSlotRequirementAdmin(admin.ModelAdmin):
 class AssignmentAdmin(admin.ModelAdmin):
     list_display = ('shift_date', 'member', 'shift_pattern')
     list_filter = ('shift_date', 'member__department', 'member', 'shift_pattern')
+    actions = ['delete_selected_assignments']
+
+    @admin.action(description='選択された確定シフトを削除')
+    def delete_selected_assignments(self, request, queryset):
+        queryset.delete()
+        self.message_user(request, f"選択された確定シフトを削除しました。")
 
 @admin.register(FixedAssignment)
 class FixedAssignmentAdmin(admin.ModelAdmin):
