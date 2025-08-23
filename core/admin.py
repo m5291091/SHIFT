@@ -9,7 +9,6 @@ from .models import (
     Department, DesignatedHoliday, PaidLeave, SolverSettings # Added PaidLeave, SolverSettings
 )
 
-@admin.register(Department)
 class DepartmentAdmin(admin.ModelAdmin):
     list_display = ('name',)
 
@@ -118,7 +117,6 @@ class AssignmentAdmin(admin.ModelAdmin):
         queryset.delete()
         self.message_user(request, f"選択された確定シフトを削除しました。")
 
-@admin.register(FixedAssignment)
 class FixedAssignmentAdmin(admin.ModelAdmin):
     list_display = ('shift_date', 'member', 'shift_pattern')
     list_filter = ('shift_date', 'member__department', 'member', 'shift_pattern')
@@ -166,7 +164,7 @@ class FixedAssignmentAdmin(admin.ModelAdmin):
         extra_context['bulk_add_url'] = reverse('admin:core_fixedassignment_bulk_add')
         return super().changelist_view(request, extra_context)
 
-@admin.register(OtherAssignment)
+
 class OtherAssignmentAdmin(admin.ModelAdmin):
     list_display = ('member', 'shift_date', 'activity_name')
     list_filter = ('member__department', 'member', 'activity_name')
@@ -214,24 +212,24 @@ class OtherAssignmentAdmin(admin.ModelAdmin):
         extra_context['bulk_add_url'] = reverse('admin:core_otherassignment_bulk_add')
         return super().changelist_view(request, extra_context)
 
-@admin.register(SpecificDateRequirement)
+
 class SpecificDateRequirementAdmin(admin.ModelAdmin):
     list_display = ('date', 'department', 'shift_pattern', 'min_headcount', 'max_headcount')
     list_filter = ('date', 'department', 'shift_pattern')
     ordering = ('-date',)
 
-@admin.register(SpecificTimeSlotRequirement)
+
 class SpecificTimeSlotRequirementAdmin(admin.ModelAdmin):
     list_display = ('date', 'department', 'start_time', 'end_time', 'min_headcount', 'max_headcount')
     list_filter = ('date', 'department',)
     ordering = ('-date', 'start_time')
 
-@admin.register(DesignatedHoliday)
+
 class DesignatedHolidayAdmin(admin.ModelAdmin):
     list_display = ('member', 'date')
     list_filter = ('member__department', 'member',)
 
-@admin.register(PaidLeave)
+
 class PaidLeaveAdmin(admin.ModelAdmin):
     list_display = ('member', 'date', 'hours')
     list_filter = ('member__department', 'member',)
@@ -278,16 +276,21 @@ class PaidLeaveAdmin(admin.ModelAdmin):
         extra_context['bulk_add_url'] = reverse('admin:core_paidleave_bulk_add')
         return super().changelist_view(request, extra_context)
 
+
 # --- モデルの登録 ---
 admin.site.register(Member, MemberAdmin)
-admin.site.register(ShiftPattern, ShiftPatternAdmin)
-admin.site.register(LeaveRequest, LeaveRequestAdmin)
-admin.site.register(TimeSlotRequirement, TimeSlotRequirementAdmin)
-admin.site.register(Assignment, AssignmentAdmin)
-
+admin.site.register(Department, DepartmentAdmin)
 admin.site.register(DayGroup)
-
-
 admin.site.register(MemberAvailability)
+admin.site.register(ShiftPattern, ShiftPatternAdmin)
+admin.site.register(TimeSlotRequirement, TimeSlotRequirementAdmin)
+admin.site.register(SpecificDateRequirement, SpecificDateRequirementAdmin)
+admin.site.register(SpecificTimeSlotRequirement, SpecificTimeSlotRequirementAdmin)
 admin.site.register(RelationshipGroup)
 admin.site.register(GroupMember)
+admin.site.register(LeaveRequest, LeaveRequestAdmin)
+admin.site.register(PaidLeave, PaidLeaveAdmin)
+admin.site.register(FixedAssignment, FixedAssignmentAdmin)
+admin.site.register(OtherAssignment, OtherAssignmentAdmin)
+admin.site.register(DesignatedHoliday, DesignatedHolidayAdmin)
+admin.site.register(Assignment, AssignmentAdmin)
