@@ -285,6 +285,8 @@ admin.site.register(LeaveRequest, LeaveRequestAdmin)
 admin.site.register(TimeSlotRequirement, TimeSlotRequirementAdmin)
 admin.site.register(Assignment, AssignmentAdmin)
 
+admin.site.register(DayGroup)
+
 
 admin.site.register(MemberAvailability)
 admin.site.register(RelationshipGroup)
