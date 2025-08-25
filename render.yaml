@@ -35,9 +35,8 @@ services:
     buildCommand: "cd frontend/vue-project && VITE_API_BASE_URL=https://shift-app-backend.onrender.com/api/v1/ npm install && npm run build"
     staticPublishPath: ./frontend/vue-project/dist
     autoDeploy: true
-    routes:
-      - type: rewrite
-        source: /*
+    rewrites:
+      - source: /*
         destination: /index.html
 
 # ===================================
