@@ -6,3 +6,4 @@ django-colorfield
 ortools
 django-cors-headers
 gunicorn
+whitenoise
