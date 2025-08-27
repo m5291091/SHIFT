@@ -156,10 +156,15 @@ STATICFILES_DIRS = [
 ]
 
 # ファイルの末尾に追加
+CORS_ORIGIN_WHITELIST = [
+    "http://localhost:5173",
+    "https://shift-app-frontend.onrender.com",
+]
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "https://shift-app-frontend.onrender.com",
 ]
+
 
 ADMIN_INTERFACE_MENU = [
     {

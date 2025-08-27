@@ -489,7 +489,7 @@ const generateShifts = async () => {
     } else {
       message.value = 'シフト生成に失敗しました。ルールが厳しすぎる可能性があります。'
     }
-    await fetchScheduleData(false) // assignments以外を再取得
+    await fetchScheduleData(true) // 全データを再取得
   } catch (error) {
     console.error('リクエストエラー:', error)
     message.value = 'サーバーとの通信中にエラーが発生しました。'
