@@ -1,7 +1,14 @@
 from django.db import models
+from django.conf import settings # 追加
 
 class Department(models.Model):
     name = models.CharField("部門名", max_length=100, unique=True)
+    managers = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name='managed_departments',
+        blank=True,
+        verbose_name="管理者"
+    )
 
     class Meta:
         verbose_name = "部門"
