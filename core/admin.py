@@ -56,6 +56,11 @@ class MemberShiftPatternPreferenceInline(admin.TabularInline):
     model = MemberShiftPatternPreference
     extra = 1
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "shift_pattern" and not request.user.is_superuser:
+            kwargs["queryset"] = ShiftPattern.objects.filter(created_by=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
 class MemberAdmin(admin.ModelAdmin):
     list_display = (
         'name', 'department', 'sort_order', 'employee_type', 'min_monthly_days_off',
@@ -718,6 +723,13 @@ class SpecificDateRequirementAdmin(admin.ModelAdmin):
             kwargs["queryset"] = ShiftPattern.objects.filter(created_by=request.user)
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "department" and not request.user.is_superuser:
+            kwargs["queryset"] = Department.objects.filter(created_by=request.user)
+        if db_field.name == "shift_pattern" and not request.user.is_superuser:
+            kwargs["queryset"] = ShiftPattern.objects.filter(created_by=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
 
 class SpecificTimeSlotRequirementAdmin(admin.ModelAdmin):
     list_display = ('date', 'department', 'start_time', 'end_time', 'min_headcount', 'max_headcount')
@@ -760,6 +772,11 @@ class SpecificTimeSlotRequirementAdmin(admin.ModelAdmin):
         if obj is not None:
             return obj.created_by == request.user
         return False # Disallow deleting objects not explicitly created by user
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "department" and not request.user.is_superuser:
+            kwargs["queryset"] = Department.objects.filter(created_by=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "department" and not request.user.is_superuser:
@@ -913,6 +930,96 @@ class PaidLeaveAdmin(admin.ModelAdmin):
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
+class RelationshipGroupAdmin(admin.ModelAdmin):
+    list_display = ('group_name', 'rule_type',)
+    list_filter = ('rule_type',)
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(created_by=request.user)
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+    def has_view_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is not None:
+            return obj.created_by == request.user
+        return request.user.is_authenticated
+
+    def has_add_permission(self, request):
+        if request.user.is_superuser:
+            return True
+        return request.user.is_authenticated
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is not None:
+            return obj.created_by == request.user
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is not None:
+            return obj.created_by == request.user
+        return False
+
+
+class GroupMemberAdmin(admin.ModelAdmin):
+    list_display = ('group', 'member',)
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(created_by=request.user)
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+    def has_view_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is not None:
+            return obj.created_by == request.user
+        return request.user.is_authenticated
+
+    def has_add_permission(self, request):
+        if request.user.is_superuser:
+            return True
+        return request.user.is_authenticated
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is not None:
+            return obj.created_by == request.user
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is not None:
+            return obj.created_by == request.user
+        return False
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "group" and not request.user.is_superuser:
+            kwargs["queryset"] = RelationshipGroup.objects.filter(created_by=request.user)
+        if db_field.name == "member" and not request.user.is_superuser:
+            kwargs["queryset"] = Member.objects.filter(created_by=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
 class SolverSettingsAdmin(admin.ModelAdmin):
     list_display = ('department', 'name', 'is_default', 'headcount_penalty_cost')
     list_filter = ('department', 'is_default')
@@ -991,8 +1098,8 @@ admin.site.register(ShiftPattern, ShiftPatternAdmin)
 admin.site.register(TimeSlotRequirement, TimeSlotRequirementAdmin)
 admin.site.register(SpecificDateRequirement, SpecificDateRequirementAdmin)
 admin.site.register(SpecificTimeSlotRequirement, SpecificTimeSlotRequirementAdmin)
-admin.site.register(RelationshipGroup)
-admin.site.register(GroupMember)
+admin.site.register(RelationshipGroup, RelationshipGroupAdmin)
+admin.site.register(GroupMember, GroupMemberAdmin)
 admin.site.register(LeaveRequest, LeaveRequestAdmin)
 admin.site.register(PaidLeave, PaidLeaveAdmin)
 admin.site.register(FixedAssignment, FixedAssignmentAdmin)
