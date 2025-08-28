@@ -19,33 +19,38 @@ class DepartmentAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(managers=request.user)
+        return qs.filter(created_by=request.user)
+
+    def save_model(self, request, obj, form, change):
+        if not change: # Only set created_by for new objects
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
     def has_view_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return request.user in obj.managers.all()
-        return True # Allow viewing the list, get_queryset will filter
+            return obj.created_by == request.user
+        return request.user.is_authenticated # Allow viewing list if authenticated
+
+    def has_add_permission(self, request):
+        if request.user.is_superuser:
+            return True
+        return request.user.is_authenticated # Allow adding if authenticated
 
     def has_change_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return request.user in obj.managers.all()
-        return False # Disallow changing objects not explicitly managed
+            return obj.created_by == request.user
+        return False # Disallow changing objects not explicitly created by user
 
     def has_delete_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return request.user in obj.managers.all()
-        return False # Disallow deleting objects not explicitly managed
-
-    def has_add_permission(self, request):
-        if request.user.is_superuser:
-            return True
-        return False
+            return obj.created_by == request.user
+        return False # Disallow deleting objects not explicitly created by user
 
 class MemberShiftPatternPreferenceInline(admin.TabularInline):
     model = MemberShiftPatternPreference
@@ -74,33 +79,38 @@ class MemberAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(department__in=request.user.managed_departments.all())
+        return qs.filter(created_by=request.user) # Filter by created_by
+
+    def save_model(self, request, obj, form, change):
+        if not change: # Only set created_by for new objects
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
     def has_view_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return request.user.managed_departments.exists() # Allow viewing list if user manages any department
+            return obj.created_by == request.user
+        return request.user.is_authenticated # Allow viewing list if authenticated
 
     def has_add_permission(self, request):
         if request.user.is_superuser:
             return True
-        return request.user.managed_departments.exists()
+        return request.user.is_authenticated # Allow adding if authenticated
 
     def has_change_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow changing objects not explicitly created by user
 
     def has_delete_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow deleting objects not explicitly created by user
 
     def get_urls(self):
         urls = super().get_urls()
@@ -112,12 +122,12 @@ class MemberAdmin(admin.ModelAdmin):
     @admin.action(description='選択した従業員の最低公休日数を変更')
     def bulk_update_min_days_off_action(self, request, queryset):
         selected_ids = queryset.values_list('id', flat=True)
-        # Filter queryset to only include members from departments managed by the user
+        # Filter queryset to only include members created by the user
         if not request.user.is_superuser:
-            queryset = queryset.filter(department__in=request.user.managed_departments.all())
+            queryset = queryset.filter(created_by=request.user)
         
         if not queryset.exists():
-            self.message_user(request, "選択された従業員の中に、あなたが管理する部門の従業員はいません。", level='error')
+            self.message_user(request, "選択された従業員の中に、あなたが作成した従業員はいません。", level='error')
             return
         
         return redirect(f"{reverse('admin:core_member_bulk_update')}?ids={','.join(map(str, selected_ids))}")
@@ -130,10 +140,10 @@ class MemberAdmin(admin.ModelAdmin):
                 selected_ids_str = request.POST.get('selected_ids')
                 selected_ids = [int(id) for id in selected_ids_str.split(',') if id]
                 
-                # Ensure only members from managed departments are updated
+                # Ensure only members created by the user are updated
                 members_to_update = Member.objects.filter(id__in=selected_ids)
                 if not request.user.is_superuser:
-                    members_to_update = members_to_update.filter(department__in=request.user.managed_departments.all())
+                    members_to_update = members_to_update.filter(created_by=request.user)
 
                 updated_count = members_to_update.update(min_monthly_days_off=new_days_off)
                 self.message_user(request, f"{updated_count}人の従業員の最低公休日数を更新しました。")
@@ -146,7 +156,7 @@ class MemberAdmin(admin.ModelAdmin):
                 selected_ids = [int(id) for id in ids.split(',') if id]
                 queryset = Member.objects.filter(id__in=selected_ids)
                 if not request.user.is_superuser:
-                    queryset = queryset.filter(department__in=request.user.managed_departments.all())
+                    queryset = queryset.filter(created_by=request.user)
 
         context = dict(self.admin_site.each_context(request), form=form, queryset=queryset, title="最低公休日数の一括変更")
         return render(request, 'admin/core/member/bulk_update_form.html', context)
@@ -159,33 +169,38 @@ class ShiftPatternAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(department__in=request.user.managed_departments.all())
+        return qs.filter(created_by=request.user) # Filter by created_by
+
+    def save_model(self, request, obj, form, change):
+        if not change: # Only set created_by for new objects
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
     def has_view_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return request.user.managed_departments.exists()
+            return obj.created_by == request.user
+        return request.user.is_authenticated # Allow viewing list if authenticated
 
     def has_add_permission(self, request):
         if request.user.is_superuser:
             return True
-        return request.user.managed_departments.exists()
+        return request.user.is_authenticated # Allow adding if authenticated
 
     def has_change_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow changing objects not explicitly created by user
 
     def has_delete_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow deleting objects not explicitly created by user
 
 class LeaveRequestAdmin(admin.ModelAdmin):
     list_display = ('member', 'leave_date', 'status')
@@ -195,33 +210,38 @@ class LeaveRequestAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(member__department__in=request.user.managed_departments.all())
+        return qs.filter(created_by=request.user) # Filter by created_by
+
+    def save_model(self, request, obj, form, change):
+        if not change: # Only set created_by for new objects
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
     def has_view_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return request.user.managed_departments.exists()
+            return obj.created_by == request.user
+        return request.user.is_authenticated # Allow viewing list if authenticated
 
     def has_add_permission(self, request):
         if request.user.is_superuser:
             return True
-        return request.user.managed_departments.exists()
+        return request.user.is_authenticated # Allow adding if authenticated
 
     def has_change_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow changing objects not explicitly created by user
 
     def has_delete_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow deleting objects not explicitly created by user
 
     def get_urls(self):
         urls = super().get_urls()
@@ -236,8 +256,9 @@ class LeaveRequestAdmin(admin.ModelAdmin):
             if form.is_valid():
                 member = form.cleaned_data['member']
                 # Ensure the selected member belongs to a department managed by the user
-                if not request.user.is_superuser and member.department not in request.user.managed_departments.all():
-                    self.message_user(request, "選択された従業員は、あなたが管理する部門に属していません。", level='error')
+                # This check is now based on created_by for the member, not department managers
+                if not request.user.is_superuser and member.created_by != request.user:
+                    self.message_user(request, "選択された従業員は、あなたが作成した従業員ではありません。", level='error')
                     return redirect('admin:core_leaverequest_changelist')
 
                 dates_str = form.cleaned_data['leave_dates']
@@ -245,15 +266,15 @@ class LeaveRequestAdmin(admin.ModelAdmin):
                 created_count = 0
                 for date_str in dates:
                     if date_str:
-                        _, created = LeaveRequest.objects.get_or_create(member=member, leave_date=date_str, defaults={'status': 'approved'})
+                        _, created = LeaveRequest.objects.get_or_create(member=member, leave_date=date_str, defaults={'status': 'approved', 'created_by': request.user})
                         if created: created_count += 1
                 self.message_user(request, f"{created_count}件の希望休を登録しました。")
                 return redirect('admin:core_leaverequest_changelist')
         else:
             form = BulkLeaveRequestForm()
-            # Filter member choices in the form based on managed departments
+            # Filter member choices in the form based on created_by
             if not request.user.is_superuser:
-                form.fields['member'].queryset = Member.objects.filter(department__in=request.user.managed_departments.all())
+                form.fields['member'].queryset = Member.objects.filter(created_by=request.user)
 
         context = dict(self.admin_site.each_context(request), form=form, title="希望休の一括登録")
         return render(request, 'admin/core/leaverequest/bulk_add_form.html', context)
@@ -271,33 +292,38 @@ class TimeSlotRequirementAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(department__in=request.user.managed_departments.all())
+        return qs.filter(created_by=request.user) # Filter by created_by
+
+    def save_model(self, request, obj, form, change):
+        if not change: # Only set created_by for new objects
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
     def has_view_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return request.user.managed_departments.exists()
+            return obj.created_by == request.user
+        return request.user.is_authenticated # Allow viewing list if authenticated
 
     def has_add_permission(self, request):
         if request.user.is_superuser:
             return True
-        return request.user.managed_departments.exists()
+        return request.user.is_authenticated # Allow adding if authenticated
 
     def has_change_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow changing objects not explicitly created by user
 
     def has_delete_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow deleting objects not explicitly created by user
 
 class AssignmentAdmin(admin.ModelAdmin):
     list_display = ('shift_date', 'member', 'shift_pattern')
@@ -308,42 +334,47 @@ class AssignmentAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(member__department__in=request.user.managed_departments.all())
+        return qs.filter(created_by=request.user) # Filter by created_by
+
+    def save_model(self, request, obj, form, change):
+        if not change: # Only set created_by for new objects
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
     def has_view_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return request.user.managed_departments.exists()
+            return obj.created_by == request.user
+        return request.user.is_authenticated # Allow viewing list if authenticated
 
     def has_add_permission(self, request):
         if request.user.is_superuser:
             return True
-        return request.user.managed_departments.exists()
+        return request.user.is_authenticated # Allow adding if authenticated
 
     def has_change_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow changing objects not explicitly created by user
 
     def has_delete_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow deleting objects not explicitly created by user
 
     @admin.action(description='選択された確定シフトを削除')
     def delete_selected_assignments(self, request, queryset):
-        # Filter queryset to only include assignments from departments managed by the user
+        # Filter queryset to only include assignments created by the user
         if not request.user.is_superuser:
-            queryset = queryset.filter(member__department__in=request.user.managed_departments.all())
+            queryset = queryset.filter(created_by=request.user)
 
         if not queryset.exists():
-            self.message_user(request, "選択された確定シフトの中に、あなたが管理する部門のシフトはありません。", level='error')
+            self.message_user(request, "選択された確定シフトの中に、あなたが作成したシフトはありません。", level='error')
             return
 
         queryset.delete()
@@ -357,33 +388,38 @@ class FixedAssignmentAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(member__department__in=request.user.managed_departments.all())
+        return qs.filter(created_by=request.user) # Filter by created_by
+
+    def save_model(self, request, obj, form, change):
+        if not change: # Only set created_by for new objects
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
     def has_view_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return request.user.managed_departments.exists()
+            return obj.created_by == request.user
+        return request.user.is_authenticated # Allow viewing list if authenticated
 
     def has_add_permission(self, request):
         if request.user.is_superuser:
             return True
-        return request.user.managed_departments.exists()
+        return request.user.is_authenticated # Allow adding if authenticated
 
     def has_change_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow changing objects not explicitly created by user
 
     def has_delete_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow deleting objects not explicitly created by user
 
     def get_urls(self):
         urls = super().get_urls()
@@ -400,8 +436,9 @@ class FixedAssignmentAdmin(admin.ModelAdmin):
                 shift_pattern = form.cleaned_data['shift_pattern']
                 
                 # Ensure the selected member belongs to a department managed by the user
-                if not request.user.is_superuser and member.department not in request.user.managed_departments.all():
-                    self.message_user(request, "選択された従業員は、あなたが管理する部門に属していません。", level='error')
+                # This check is now based on created_by for the member, not department managers
+                if not request.user.is_superuser and member.created_by != request.user:
+                    self.message_user(request, "選択された従業員は、あなたが作成した従業員ではありません。", level='error')
                     return redirect('admin:core_fixedassignment_changelist')
 
                 dates_str = form.cleaned_data['dates']
@@ -413,7 +450,7 @@ class FixedAssignmentAdmin(admin.ModelAdmin):
                     FixedAssignment.objects.update_or_create(
                         member=member,
                         shift_date=date_str,
-                        defaults={'shift_pattern': shift_pattern}
+                        defaults={'shift_pattern': shift_pattern, 'created_by': request.user}
                     )
                     count += 1
                 
@@ -421,12 +458,12 @@ class FixedAssignmentAdmin(admin.ModelAdmin):
                 return redirect('admin:core_fixedassignment_changelist')
         else:
             form = BulkFixedAssignmentForm()
-            # Filter member choices in the form based on managed departments
+            # Filter member choices in the form based on created_by
             if not request.user.is_superuser:
-                form.fields['member'].queryset = Member.objects.filter(department__in=request.user.managed_departments.all())
-            # Filter shift_pattern choices in the form based on managed departments
+                form.fields['member'].queryset = Member.objects.filter(created_by=request.user)
+            # Filter shift_pattern choices in the form based on created_by
             if not request.user.is_superuser:
-                form.fields['shift_pattern'].queryset = ShiftPattern.objects.filter(department__in=request.user.managed_departments.all())
+                form.fields['shift_pattern'].queryset = ShiftPattern.objects.filter(created_by=request.user)
 
 
         context = dict(
@@ -450,33 +487,38 @@ class OtherAssignmentAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(member__department__in=request.user.managed_departments.all())
+        return qs.filter(created_by=request.user) # Filter by created_by
+
+    def save_model(self, request, obj, form, change):
+        if not change: # Only set created_by for new objects
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
     def has_view_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return request.user.managed_departments.exists()
+            return obj.created_by == request.user
+        return request.user.is_authenticated # Allow viewing list if authenticated
 
     def has_add_permission(self, request):
         if request.user.is_superuser:
             return True
-        return request.user.managed_departments.exists()
+        return request.user.is_authenticated # Allow adding if authenticated
 
     def has_change_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow changing objects not explicitly created by user
 
     def has_delete_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow deleting objects not explicitly created by user
 
     def get_urls(self):
         urls = super().get_urls()
@@ -493,8 +535,9 @@ class OtherAssignmentAdmin(admin.ModelAdmin):
                 activity_name = form.cleaned_data['activity_name']
                 
                 # Ensure the selected member belongs to a department managed by the user
-                if not request.user.is_superuser and member.department not in request.user.managed_departments.all():
-                    self.message_user(request, "選択された従業員は、あなたが管理する部門に属していません。", level='error')
+                # This check is now based on created_by for the member, not department managers
+                if not request.user.is_superuser and member.created_by != request.user:
+                    self.message_user(request, "選択された従業員は、あなたが作成した従業員ではありません。", level='error')
                     return redirect('admin:core_otherassignment_changelist')
 
                 dates_str = form.cleaned_data['dates']
@@ -506,7 +549,7 @@ class OtherAssignmentAdmin(admin.ModelAdmin):
                     OtherAssignment.objects.update_or_create(
                         member=member,
                         shift_date=date_str,
-                        defaults={'activity_name': activity_name}
+                        defaults={'activity_name': activity_name, 'created_by': request.user}
                     )
                     count += 1
                 
@@ -514,9 +557,9 @@ class OtherAssignmentAdmin(admin.ModelAdmin):
                 return redirect('admin:core_otherassignment_changelist')
         else:
             form = BulkOtherAssignmentForm()
-            # Filter member choices in the form based on managed departments
+            # Filter member choices in the form based on created_by
             if not request.user.is_superuser:
-                form.fields['member'].queryset = Member.objects.filter(department__in=request.user.managed_departments.all())
+                form.fields['member'].queryset = Member.objects.filter(created_by=request.user)
 
         context = dict(
            self.admin_site.each_context(request),
@@ -540,33 +583,38 @@ class SpecificDateRequirementAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(department__in=request.user.managed_departments.all())
+        return qs.filter(created_by=request.user) # Filter by created_by
+
+    def save_model(self, request, obj, form, change):
+        if not change: # Only set created_by for new objects
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
     def has_view_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return request.user.managed_departments.exists()
+            return obj.created_by == request.user
+        return request.user.is_authenticated # Allow viewing list if authenticated
 
     def has_add_permission(self, request):
         if request.user.is_superuser:
             return True
-        return request.user.managed_departments.exists()
+        return request.user.is_authenticated # Allow adding if authenticated
 
     def has_change_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow changing objects not explicitly created by user
 
     def has_delete_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow deleting objects not explicitly created by user
 
 
 class SpecificTimeSlotRequirementAdmin(admin.ModelAdmin):
@@ -578,33 +626,38 @@ class SpecificTimeSlotRequirementAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(department__in=request.user.managed_departments.all())
+        return qs.filter(created_by=request.user) # Filter by created_by
+
+    def save_model(self, request, obj, form, change):
+        if not change: # Only set created_by for new objects
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
     def has_view_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return request.user.managed_departments.exists()
+            return obj.created_by == request.user
+        return request.user.is_authenticated # Allow viewing list if authenticated
 
     def has_add_permission(self, request):
         if request.user.is_superuser:
             return True
-        return request.user.managed_departments.exists()
+        return request.user.is_authenticated # Allow adding if authenticated
 
     def has_change_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow changing objects not explicitly created by user
 
     def has_delete_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow deleting objects not explicitly created by user
 
 
 class DesignatedHolidayAdmin(admin.ModelAdmin):
@@ -615,33 +668,38 @@ class DesignatedHolidayAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(member__department__in=request.user.managed_departments.all())
+        return qs.filter(created_by=request.user) # Filter by created_by
+
+    def save_model(self, request, obj, form, change):
+        if not change: # Only set created_by for new objects
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
     def has_view_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return request.user.managed_departments.exists()
+            return obj.created_by == request.user
+        return request.user.is_authenticated # Allow viewing list if authenticated
 
     def has_add_permission(self, request):
         if request.user.is_superuser:
             return True
-        return request.user.managed_departments.exists()
+        return request.user.is_authenticated # Allow adding if authenticated
 
     def has_change_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow changing objects not explicitly created by user
 
     def has_delete_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow deleting objects not explicitly created by user
 
 
 class PaidLeaveAdmin(admin.ModelAdmin):
@@ -652,33 +710,38 @@ class PaidLeaveAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(member__department__in=request.user.managed_departments.all())
+        return qs.filter(created_by=request.user) # Filter by created_by
+
+    def save_model(self, request, obj, form, change):
+        if not change: # Only set created_by for new objects
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
     def has_view_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return request.user.managed_departments.exists()
+            return obj.created_by == request.user
+        return request.user.is_authenticated # Allow viewing list if authenticated
 
     def has_add_permission(self, request):
         if request.user.is_superuser:
             return True
-        return request.user.managed_departments.exists()
+        return request.user.is_authenticated # Allow adding if authenticated
 
     def has_change_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow changing objects not explicitly created by user
 
     def has_delete_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.member.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow deleting objects not explicitly created by user
 
     def get_urls(self):
         urls = super().get_urls()
@@ -694,8 +757,9 @@ class PaidLeaveAdmin(admin.ModelAdmin):
                 member = form.cleaned_data['member']
                 
                 # Ensure the selected member belongs to a department managed by the user
-                if not request.user.is_superuser and member.department not in request.user.managed_departments.all():
-                    self.message_user(request, "選択された従業員は、あなたが管理する部門に属していません。", level='error')
+                # This check is now based on created_by for the member, not department managers
+                if not request.user.is_superuser and member.created_by != request.user:
+                    self.message_user(request, "選択された従業員は、あなたが作成した従業員ではありません。", level='error')
                     return redirect('admin:core_paidleave_changelist')
 
                 dates_str = form.cleaned_data['dates']
@@ -703,21 +767,21 @@ class PaidLeaveAdmin(admin.ModelAdmin):
                 
                 count = 0
                 for date_str in dates:
-                    if not date_str: continue
-                    PaidLeave.objects.update_or_create(
-                        member=member,
-                        date=date_str,
-                        defaults={'hours': 8} # Default to 8 hours for paid leave
-                    )
-                    count += 1
+                    if date_str:
+                        _, created = PaidLeave.objects.update_or_create(
+                            member=member,
+                            date=date_str,
+                            defaults={'hours': 8, 'created_by': request.user}
+                        )
+                        if created: count += 1
                 
                 self.message_user(request, f"{count}件の有給を登録・更新しました。")
                 return redirect('admin:core_paidleave_changelist')
         else:
             form = BulkPaidLeaveForm()
-            # Filter member choices in the form based on managed departments
+            # Filter member choices in the form based on created_by
             if not request.user.is_superuser:
-                form.fields['member'].queryset = Member.objects.filter(department__in=request.user.managed_departments.all())
+                form.fields['member'].queryset = Member.objects.filter(created_by=request.user)
 
         context = dict(
            self.admin_site.each_context(request),
@@ -762,33 +826,38 @@ class SolverSettingsAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(department__in=request.user.managed_departments.all())
+        return qs.filter(created_by=request.user) # Filter by created_by
+
+    def save_model(self, request, obj, form, change):
+        if not change: # Only set created_by for new objects
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
     def has_view_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return request.user.managed_departments.exists()
+            return obj.created_by == request.user
+        return request.user.is_authenticated # Allow viewing list if authenticated
 
     def has_add_permission(self, request):
         if request.user.is_superuser:
             return True
-        return request.user.managed_departments.exists()
+        return request.user.is_authenticated # Allow adding if authenticated
 
     def has_change_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow changing objects not explicitly created by user
 
     def has_delete_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
-            return obj.department in request.user.managed_departments.all()
-        return False
+            return obj.created_by == request.user
+        return False # Disallow deleting objects not explicitly created by user
 
 
 # --- モデルの登録 ---

@@ -9,6 +9,7 @@ class Department(models.Model):
         blank=True,
         verbose_name="管理者"
     )
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
 
     class Meta:
         verbose_name = "部門"
@@ -40,6 +41,7 @@ class Member(models.Model):
     department = models.ForeignKey(Department, on_delete=models.PROTECT, verbose_name="所属部門")
     name = models.CharField("氏名", max_length=100)
     employee_type = models.CharField("雇用形態", max_length=10, choices=EMPLOYEE_TYPE_CHOICES, default='hourly')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
     hourly_wage = models.IntegerField("時給", null=True, blank=True, help_text="時給制の場合のみ入力")
     monthly_salary = models.IntegerField("月給", null=True, blank=True, help_text="固定給の場合のみ入力")
     
@@ -91,6 +93,7 @@ class ShiftPattern(models.Model):
     is_night_shift = models.BooleanField("夜勤シフト", default=False, help_text="このシフトが夜勤の場合にチェック")
     min_headcount = models.IntegerField("このシフトの最低人数", default=0, help_text="0の場合は無制限")
     max_headcount = models.IntegerField("このシフトの最高人数", null=True, blank=True, help_text="空欄の場合は無制限")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
 
     class Meta:
         verbose_name = "シフトパターン"
@@ -109,6 +112,8 @@ class DayGroup(models.Model):
     is_saturday = models.BooleanField("土", default=False)
     is_sunday = models.BooleanField("日", default=False)
 
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
+
     class Meta:
         verbose_name = "曜日グループ"
         verbose_name_plural = "03. 曜日グループ"
@@ -123,6 +128,7 @@ class TimeSlotRequirement(models.Model):
     end_time = models.TimeField("終了時刻")
     min_headcount = models.IntegerField("最低必要人数")
     max_headcount = models.IntegerField("最大必要人数", null=True, blank=True, help_text="空欄の場合は上限なし")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
 
     class Meta:
         verbose_name = "時間帯別必要人数"
@@ -140,6 +146,7 @@ class MemberAvailability(models.Model):
     day_of_week = models.IntegerField("曜日", choices=DAY_CHOICES)
     start_time = models.TimeField("勤務可能開始時刻")
     end_time = models.TimeField("勤務可能終了時刻")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
     
     class Meta:
         verbose_name = "勤務可能条件"
@@ -153,6 +160,7 @@ class LeaveRequest(models.Model):
     member = models.ForeignKey(Member, on_delete=models.CASCADE, verbose_name="従業員")
     leave_date = models.DateField("希望休の日付")
     status = models.CharField("状態", max_length=50, choices=STATUS_CHOICES, default='pending')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
     
     class Meta:
         verbose_name = "希望休"
@@ -165,6 +173,7 @@ class RelationshipGroup(models.Model):
     RULE_CHOICES = [('incompatible', '非互換'), ('pairing', 'ペアリング')]
     group_name = models.CharField("グループ名", max_length=100)
     rule_type = models.CharField("ルールの種類", max_length=50, choices=RULE_CHOICES)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
     
     class Meta:
         verbose_name = "関係性グループ"
@@ -176,6 +185,7 @@ class RelationshipGroup(models.Model):
 class GroupMember(models.Model):
     group = models.ForeignKey(RelationshipGroup, on_delete=models.CASCADE, verbose_name="グループ")
     member = models.ForeignKey(Member, on_delete=models.CASCADE, verbose_name="従業員")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
     
     class Meta:
         verbose_name = "グループ所属メンバー"
@@ -188,6 +198,7 @@ class Assignment(models.Model):
     member = models.ForeignKey(Member, on_delete=models.CASCADE, verbose_name="従業員")
     shift_pattern = models.ForeignKey(ShiftPattern, on_delete=models.CASCADE, verbose_name="シフトパターン")
     shift_date = models.DateField("勤務日")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
     
     class Meta:
         verbose_name = "確定シフト"
@@ -200,6 +211,7 @@ class OtherAssignment(models.Model):
     member = models.ForeignKey(Member, on_delete=models.CASCADE, verbose_name="従業員")
     shift_date = models.DateField("勤務日")
     activity_name = models.CharField("業務内容", max_length=100)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
 
     class Meta:
         verbose_name = "その他の割り当て"
@@ -217,6 +229,7 @@ class FixedAssignment(models.Model):
     member = models.ForeignKey(Member, on_delete=models.CASCADE, verbose_name="従業員")
     shift_pattern = models.ForeignKey(ShiftPattern, on_delete=models.CASCADE, verbose_name="シフトパターン")
     shift_date = models.DateField("勤務日")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
 
     class Meta:
         verbose_name = "固定シフト"
@@ -230,6 +243,7 @@ class FixedAssignment(models.Model):
 class DesignatedHoliday(models.Model):
     member = models.ForeignKey(Member, on_delete=models.CASCADE, verbose_name="従業員")
     date = models.DateField("日付")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
 
     class Meta:
         verbose_name = "指定休日"
@@ -244,6 +258,7 @@ class PaidLeave(models.Model):
     member = models.ForeignKey('Member', on_delete=models.CASCADE, verbose_name="従業員")
     date = models.DateField("日付")
     hours = models.IntegerField("時間数", default=8, help_text="有給としてカウントされる時間数")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
 
     class Meta:
         verbose_name = "有給"
@@ -260,6 +275,7 @@ class SpecificDateRequirement(models.Model):
     shift_pattern = models.ForeignKey(ShiftPattern, on_delete=models.CASCADE, verbose_name="シフトパターン")
     min_headcount = models.IntegerField("最低必要人数")
     max_headcount = models.IntegerField("最大必要人数", null=True, blank=True, help_text="空欄の場合は上限なし")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
 
     class Meta:
         verbose_name = "特定日別シフト必要人数"
@@ -276,6 +292,8 @@ class SpecificTimeSlotRequirement(models.Model):
     end_time = models.TimeField("終了時刻")
     min_headcount = models.IntegerField("最低必要人数")
     max_headcount = models.IntegerField("最大必要人数", null=True, blank=True, help_text="空欄の場合は上限なし")
+
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
 
     class Meta:
         verbose_name = "特定日別時間帯必要人数"
@@ -306,6 +324,8 @@ class SolverSettings(models.Model):
     pairing_bonus = models.IntegerField("ペアリングボーナス", default=5000)
     shift_preference_bonus = models.IntegerField("シフト希望ボーナス", default=100)
     unavailable_day_penalty = models.IntegerField("勤務不可曜日ペナルティ", default=70000)
+
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
 
     class Meta:
         verbose_name = "ソルバー設定"
