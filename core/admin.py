@@ -80,6 +80,46 @@ class MemberShiftPatternPreferenceInline(admin.TabularInline):
             kwargs["queryset"] = ShiftPattern.objects.filter(created_by=request.user)
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
+class DayGroupAdmin(admin.ModelAdmin):
+    list_display = ('group_name', 'is_monday', 'is_tuesday', 'is_wednesday', 'is_thursday', 'is_friday', 'is_saturday', 'is_sunday',)
+    
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(created_by=request.user)
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+    def has_view_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is not None:
+            return obj.created_by == request.user
+        return request.user.is_authenticated
+
+    def has_add_permission(self, request):
+        if request.user.is_superuser:
+            return True
+        return request.user.is_authenticated
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is not None:
+            return obj.created_by == request.user
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is not None:
+            return obj.created_by == request.user
+        return False
+
 class MemberAdmin(admin.ModelAdmin):
     list_display = (
         'name', 'department', 'sort_order', 'employee_type', 'min_monthly_days_off',
@@ -1111,7 +1151,7 @@ class SolverSettingsAdmin(admin.ModelAdmin):
 # --- モデルの登録 ---
 admin.site.register(Member, MemberAdmin)
 admin.site.register(Department, DepartmentAdmin)
-admin.site.register(DayGroup)
+admin.site.register(DayGroup, DayGroupAdmin)
 admin.site.register(MemberAvailability)
 admin.site.register(ShiftPattern, ShiftPatternAdmin)
 admin.site.register(TimeSlotRequirement, TimeSlotRequirementAdmin)
