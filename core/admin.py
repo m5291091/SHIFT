@@ -14,6 +14,8 @@ User = get_user_model() # Define User model
 
 class DepartmentAdmin(admin.ModelAdmin):
     list_display = ('name',)
+    # Hide managers and created_by from the form, as they are set automatically
+    exclude = ('managers', 'created_by',) # Use exclude to remove from form
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -22,35 +24,52 @@ class DepartmentAdmin(admin.ModelAdmin):
         return qs.filter(created_by=request.user)
 
     def save_model(self, request, obj, form, change):
-        if not change: # Only set created_by for new objects
+        if not change: # Only set created_by and managers for new objects
             obj.created_by = request.user
+        
+        # Save the object first to ensure it has a primary key for M2M relationship
         super().save_model(request, obj, form, change)
+
+        if not change: # Add managers only for new objects
+            # Add the current user as a manager
+            obj.managers.add(request.user)
+            # Add all superusers as managers
+            for superuser in User.objects.filter(is_superuser=True):
+                obj.managers.add(superuser)
+        
+        # If it's an existing object, ensure the current user remains a manager
+        # and superusers remain managers, but don't add them again if already present.
+        # This is handled by M2M's add method which prevents duplicates.
+        if change:
+            obj.managers.add(request.user)
+            for superuser in User.objects.filter(is_superuser=True):
+                obj.managers.add(superuser)
 
     def has_view_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
             return obj.created_by == request.user
-        return request.user.is_authenticated # Allow viewing list if authenticated
+        return request.user.is_authenticated
 
     def has_add_permission(self, request):
         if request.user.is_superuser:
             return True
-        return request.user.is_authenticated # Allow adding if authenticated
+        return request.user.is_authenticated
 
     def has_change_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
             return obj.created_by == request.user
-        return False # Disallow changing objects not explicitly created by user
+        return False
 
     def has_delete_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
         if obj is not None:
             return obj.created_by == request.user
-        return False # Disallow deleting objects not explicitly created by user
+        return False
 
 class MemberShiftPatternPreferenceInline(admin.TabularInline):
     model = MemberShiftPatternPreference
