@@ -112,6 +112,65 @@ class MemberAdmin(admin.ModelAdmin):
             return obj.created_by == request.user
         return False # Disallow deleting objects not explicitly created by user
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "department" and not request.user.is_superuser:
+            kwargs["queryset"] = Department.objects.filter(created_by=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def formfield_for_manytomany(self, db_field, request, **kwargs):
+        if db_field.name == "allowed_day_groups" and not request.user.is_superuser:
+            kwargs["queryset"] = DayGroup.objects.filter(created_by=request.user)
+        return super().formfield_for_manytomany(db_field, request, **kwargs)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path('bulk-update-days-off/', self.admin_site.admin_view(self.bulk_update_view), name='core_member_bulk_update'),
+        ]
+        return custom_urls + urls
+
+    @admin.action(description='選択した従業員の最低公休日数を変更')
+    def bulk_update_min_days_off_action(self, request, queryset):
+        selected_ids = queryset.values_list('id', flat=True)
+        # Filter queryset to only include members created by the user
+        if not request.user.is_superuser:
+            queryset = queryset.filter(created_by=request.user)
+        
+        if not queryset.exists():
+            self.message_user(request, "選択された従業員の中に、あなたが作成した従業員はいません。", level='error')
+            return
+        
+        return redirect(f"{reverse('admin:core_member_bulk_update')}?ids={','.join(map(str, selected_ids))}")
+
+    def bulk_update_view(self, request):
+        if request.method == 'POST':
+            form = BulkUpdateMinDaysOffForm(request.POST)
+            if form.is_valid():
+                new_days_off = form.cleaned_data['min_monthly_days_off']
+                selected_ids_str = request.POST.get('selected_ids')
+                selected_ids = [int(id) for id in selected_ids_str.split(',') if id]
+                
+                # Ensure only members created by the user are updated
+                members_to_update = Member.objects.filter(id__in=selected_ids)
+                if not request.user.is_superuser:
+                    members_to_update = members_to_update.filter(created_by=request.user)
+
+                updated_count = members_to_update.update(min_monthly_days_off=new_days_off)
+                self.message_user(request, f"{updated_count}人の従業員の最低公休日数を更新しました。")
+                return redirect('admin:core_member_changelist')
+        else:
+            form = BulkUpdateMinDaysOffForm()
+            ids = request.GET.get('ids')
+            queryset = Member.objects.none() # Start with empty queryset
+            if ids:
+                selected_ids = [int(id) for id in ids.split(',') if id]
+                queryset = Member.objects.filter(id__in=selected_ids)
+                if not request.user.is_superuser:
+                    queryset = queryset.filter(created_by=request.user)
+
+        context = dict(self.admin_site.each_context(request), form=form, queryset=queryset, title="最低公休日数の一括変更")
+        return render(request, 'admin/core/member/bulk_update_form.html', context)
+
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
@@ -202,6 +261,11 @@ class ShiftPatternAdmin(admin.ModelAdmin):
             return obj.created_by == request.user
         return False # Disallow deleting objects not explicitly created by user
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "department" and not request.user.is_superuser:
+            kwargs["queryset"] = Department.objects.filter(created_by=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
 class LeaveRequestAdmin(admin.ModelAdmin):
     list_display = ('member', 'leave_date', 'status')
     list_filter = ('status', 'member__department', 'member')
@@ -284,6 +348,11 @@ class LeaveRequestAdmin(admin.ModelAdmin):
         extra_context['bulk_add_url'] = reverse('admin:core_leaverequest_bulk_add')
         return super().changelist_view(request, extra_context=extra_context)
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "member" and not request.user.is_superuser:
+            kwargs["queryset"] = Member.objects.filter(created_by=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
 class TimeSlotRequirementAdmin(admin.ModelAdmin):
     list_display = ('department', 'day_group', 'start_time', 'end_time', 'min_headcount', 'max_headcount')
     list_filter = ('department', 'day_group',)
@@ -324,6 +393,13 @@ class TimeSlotRequirementAdmin(admin.ModelAdmin):
         if obj is not None:
             return obj.created_by == request.user
         return False # Disallow deleting objects not explicitly created by user
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "department" and not request.user.is_superuser:
+            kwargs["queryset"] = Department.objects.filter(created_by=request.user)
+        if db_field.name == "day_group" and not request.user.is_superuser:
+            kwargs["queryset"] = DayGroup.objects.filter(created_by=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 class AssignmentAdmin(admin.ModelAdmin):
     list_display = ('shift_date', 'member', 'shift_pattern')
@@ -379,6 +455,13 @@ class AssignmentAdmin(admin.ModelAdmin):
 
         queryset.delete()
         self.message_user(request, f"選択された確定シフトを削除しました。")
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "member" and not request.user.is_superuser:
+            kwargs["queryset"] = Member.objects.filter(created_by=request.user)
+        if db_field.name == "shift_pattern" and not request.user.is_superuser:
+            kwargs["queryset"] = ShiftPattern.objects.filter(created_by=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 class FixedAssignmentAdmin(admin.ModelAdmin):
     list_display = ('shift_date', 'member', 'shift_pattern')
@@ -478,6 +561,13 @@ class FixedAssignmentAdmin(admin.ModelAdmin):
         extra_context['bulk_add_url'] = reverse('admin:core_fixedassignment_bulk_add')
         return super().changelist_view(request, extra_context)
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "member" and not request.user.is_superuser:
+            kwargs["queryset"] = Member.objects.filter(created_by=request.user)
+        if db_field.name == "shift_pattern" and not request.user.is_superuser:
+            kwargs["queryset"] = ShiftPattern.objects.filter(created_by=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
 
 class OtherAssignmentAdmin(admin.ModelAdmin):
     list_display = ('member', 'shift_date', 'activity_name')
@@ -573,6 +663,11 @@ class OtherAssignmentAdmin(admin.ModelAdmin):
         extra_context['bulk_add_url'] = reverse('admin:core_otherassignment_bulk_add')
         return super().changelist_view(request, extra_context)
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "member" and not request.user.is_superuser:
+            kwargs["queryset"] = Member.objects.filter(created_by=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
 
 class SpecificDateRequirementAdmin(admin.ModelAdmin):
     list_display = ('date', 'department', 'shift_pattern', 'min_headcount', 'max_headcount')
@@ -615,6 +710,13 @@ class SpecificDateRequirementAdmin(admin.ModelAdmin):
         if obj is not None:
             return obj.created_by == request.user
         return False # Disallow deleting objects not explicitly created by user
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "department" and not request.user.is_superuser:
+            kwargs["queryset"] = Department.objects.filter(created_by=request.user)
+        if db_field.name == "shift_pattern" and not request.user.is_superuser:
+            kwargs["queryset"] = ShiftPattern.objects.filter(created_by=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 class SpecificTimeSlotRequirementAdmin(admin.ModelAdmin):
@@ -659,6 +761,11 @@ class SpecificTimeSlotRequirementAdmin(admin.ModelAdmin):
             return obj.created_by == request.user
         return False # Disallow deleting objects not explicitly created by user
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "department" and not request.user.is_superuser:
+            kwargs["queryset"] = Department.objects.filter(created_by=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
 
 class DesignatedHolidayAdmin(admin.ModelAdmin):
     list_display = ('member', 'date')
@@ -700,6 +807,11 @@ class DesignatedHolidayAdmin(admin.ModelAdmin):
         if obj is not None:
             return obj.created_by == request.user
         return False # Disallow deleting objects not explicitly created by user
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "member" and not request.user.is_superuser:
+            kwargs["queryset"] = Member.objects.filter(created_by=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 class PaidLeaveAdmin(admin.ModelAdmin):
@@ -795,6 +907,11 @@ class PaidLeaveAdmin(admin.ModelAdmin):
         extra_context['bulk_add_url'] = reverse('admin:core_paidleave_bulk_add')
         return super().changelist_view(request, extra_context)
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "member" and not request.user.is_superuser:
+            kwargs["queryset"] = Member.objects.filter(created_by=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
 
 class SolverSettingsAdmin(admin.ModelAdmin):
     list_display = ('department', 'name', 'is_default', 'headcount_penalty_cost')
@@ -858,6 +975,11 @@ class SolverSettingsAdmin(admin.ModelAdmin):
         if obj is not None:
             return obj.created_by == request.user
         return False # Disallow deleting objects not explicitly created by user
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "department" and not request.user.is_superuser:
+            kwargs["queryset"] = Department.objects.filter(created_by=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 # --- モデルの登録 ---
