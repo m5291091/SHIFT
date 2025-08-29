@@ -776,25 +776,25 @@ const exportToExcel = async () => {
   message.value = 'Excelファイルを生成中...'
 
   try {
-        const response = await axios.get('/api/v1/shifts/export/', {
+    const response = await axios.get('/api/v1/shifts/export/', {
       params: {
         department_id: selectedDepartment.value,
         start_date: startDate.value,
         end_date: endDate.value,
       },
-      responseType: 'blob', // Important for file downloads
+      responseType: 'blob', // We expect a blob for the file download
     })
 
+    // On success, trigger the download
     const url = window.URL.createObjectURL(new Blob([response.data]))
     const link = document.createElement('a')
     link.href = url
     
-    // Extract filename from content-disposition header
     const contentDisposition = response.headers['content-disposition']
     let filename = `shift_schedule_${startDate.value}.xlsx` // fallback
     if (contentDisposition) {
         const filenameMatch = contentDisposition.match(/filename="(.+)"/)
-        if (filenameMatch.length > 1) {
+        if (filenameMatch && filenameMatch.length > 1) {
             filename = filenameMatch[1]
         }
     }
@@ -806,13 +806,28 @@ const exportToExcel = async () => {
     window.URL.revokeObjectURL(url)
 
     message.value = 'Excelファイルのダウンロードが開始されました。'
+
   } catch (error) {
     message.value = 'Excelファイルの生成に失敗しました。'
-    console.error('Error exporting to Excel:', error)
+    // Check if the error response is a blob, which likely contains our JSON error message
+    if (error.response && error.response.data instanceof Blob && error.response.data.type === 'application/json') {
+        const errorJsonText = await error.response.data.text()
+        try {
+            const errorData = JSON.parse(errorJsonText)
+            console.error('--- Server-side Traceback ---')
+            console.error(errorData)
+            message.value = `サーバーエラー: ${errorData.exception || '詳細不明'} (詳細はコンソールを確認してください)`
+        } catch (e) {
+            console.error('Failed to parse the error JSON from blob:', errorJsonText)
+        }
+    } else {
+        console.error('An unexpected error occurred:', error)
+    }
   } finally {
     isLoading.value = false
   }
 }
+
 </script>
 
 <template>
