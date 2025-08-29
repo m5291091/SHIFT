@@ -390,7 +390,7 @@ def generate_schedule(department_id, start_date_str, end_date_str):
 
     # --- 6. ソルバーの実行 & 結果の保存 ---
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 15.0
+    solver.parameters.max_time_in_seconds = 150.0
     status = solver.Solve(model)
     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
         Assignment.objects.filter(shift_date__range=[start_date, end_date], member__department_id=department_id).delete()
