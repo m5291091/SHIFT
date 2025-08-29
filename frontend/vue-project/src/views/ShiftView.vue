@@ -776,7 +776,7 @@ const exportToExcel = async () => {
   message.value = 'Excelファイルを生成中...'
 
   try {
-    const response = await axios.get('/api/shifts/export/', {
+        const response = await axios.get('/api/v1/shifts/export/', {
       params: {
         department_id: selectedDepartment.value,
         start_date: startDate.value,
