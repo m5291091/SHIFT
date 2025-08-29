@@ -8,7 +8,7 @@ services:
     plan: free # 必要に応じて変更 (e.g., starter)
     buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput"
     #startCommand: "python manage.py createsuperuser --noinput --username $DJANGO_SUPERUSER_USERNAME --email $DJANGO_SUPERUSER_EMAIL && gunicorn config.wsgi:application"
-    startCommand: "gunicorn config.wsgi:application --worker-class gevent --timeout 180"
+    startCommand: "gunicorn config.wsgi:application --timeout 180"
     #startCommand: "python manage.py migrate && gunicorn config.wsgi:application"
     envVars:
       - key: SECRET_KEY
@@ -22,7 +22,7 @@ services:
           name: shift-app-db
           property: connectionString
       - key: WEB_CONCURRENCY
-        value: 1 # インスタンスタイプに応じて調整
+        value: 2 # インスタンスタイプに応じて調整
 
     healthCheckPath: /admin/login/ # アプリが起動しているか確認できるパス
     autoDeploy: true
