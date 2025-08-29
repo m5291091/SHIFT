@@ -8,19 +8,31 @@ from .models import Member, Assignment, LeaveRequest, MemberAvailability, ShiftP
 from .serializers import MemberSerializer, AssignmentSerializer, MemberAvailabilitySerializer, ShiftPatternSerializer, OtherAssignmentSerializer, FixedAssignmentSerializer, DepartmentSerializer, DesignatedHolidaySerializer, SolverSettingsSerializer, PaidLeaveSerializer
 from .solver import generate_schedule
 
-class DepartmentListView(generics.ListAPIView):
+# Base class for user-filtered data
+class UserFilteredListView(generics.ListAPIView):
+    def get_queryset(self):
+        """Filter queryset by the logged-in user."""
+        return self.queryset.filter(created_by=self.request.user)
+
+    def perform_create(self, serializer):
+        """Associate the object with the logged-in user upon creation."""
+        serializer.save(created_by=self.request.user)
+
+class DepartmentListView(UserFilteredListView):
     queryset = Department.objects.all().order_by('name')
     serializer_class = DepartmentSerializer
 
-class MemberListView(generics.ListAPIView):
+class MemberListView(UserFilteredListView):
     queryset = Member.objects.all().order_by('sort_order', 'name')
     serializer_class = MemberSerializer
 
-class ShiftPatternListView(generics.ListAPIView):
+class ShiftPatternListView(UserFilteredListView):
     serializer_class = ShiftPatternSerializer
+    queryset = ShiftPattern.objects.all()
 
     def get_queryset(self):
-        queryset = ShiftPattern.objects.all()
+        """Additionally filter by department if provided."""
+        queryset = super().get_queryset() # Apply user filter first
         department_id = self.request.query_params.get('department_id')
         if department_id is not None:
             queryset = queryset.filter(department_id=department_id)
@@ -32,8 +44,11 @@ class ScheduleDataView(APIView):
         start_date_str = self.request.query_params.get('start_date')
         end_date_str = self.request.query_params.get('end_date')
         
-        members_queryset = Member.objects.all()
-        shift_patterns_queryset = ShiftPattern.objects.all()
+        # Filter by the logged-in user
+        user = self.request.user
+        members_queryset = Member.objects.filter(created_by=user)
+        shift_patterns_queryset = ShiftPattern.objects.filter(created_by=user)
+
         if department_id:
             members_queryset = members_queryset.filter(department_id=department_id)
             shift_patterns_queryset = shift_patterns_queryset.filter(department_id=department_id)
@@ -52,45 +67,53 @@ class ScheduleDataView(APIView):
         start_date = date.fromisoformat(start_date_str)
         end_date = date.fromisoformat(end_date_str)
 
+        # Filter all data by the logged-in user
         assignments = Assignment.objects.filter(
             shift_date__range=[start_date, end_date],
-            member__department_id=department_id
+            member__department_id=department_id,
+            created_by=user
         ).select_related('member', 'shift_pattern')
         assignment_serializer = AssignmentSerializer(assignments, many=True)
 
         fixed_assignments = FixedAssignment.objects.filter(
             shift_date__range=[start_date, end_date],
-            member__department_id=department_id
+            member__department_id=department_id,
+            created_by=user
         ).select_related('member', 'shift_pattern')
         fixed_assignment_serializer = FixedAssignmentSerializer(fixed_assignments, many=True)
 
         leave_requests = LeaveRequest.objects.filter(
             status='approved', 
             leave_date__range=[start_date, end_date],
-            member__department_id=department_id
+            member__department_id=department_id,
+            created_by=user
         )
         leave_data = [{'leave_date': str(req.leave_date), 'member_id': req.member.id} for req in leave_requests]
         
         availabilities = MemberAvailability.objects.filter(
-            member__department_id=department_id
+            member__department_id=department_id,
+            created_by=user
         )
         availability_serializer = MemberAvailabilitySerializer(availabilities, many=True)
 
         other_assignments = OtherAssignment.objects.filter(
             shift_date__range=[start_date, end_date],
-            member__department_id=department_id
+            member__department_id=department_id,
+            created_by=user
         )
         other_serializer = OtherAssignmentSerializer(other_assignments, many=True)
 
         designated_holidays = DesignatedHoliday.objects.filter(
             date__range=[start_date, end_date],
-            member__department_id=department_id
+            member__department_id=department_id,
+            created_by=user
         )
         designated_holiday_serializer = DesignatedHolidaySerializer(designated_holidays, many=True)
 
         paid_leaves = PaidLeave.objects.filter(
             date__range=[start_date, end_date],
-            member__department_id=department_id
+            member__department_id=department_id,
+            created_by=user
         ).select_related('member')
         paid_leave_serializer = PaidLeaveSerializer(paid_leaves, many=True)
 
@@ -115,7 +138,6 @@ class ScheduleDataView(APIView):
                 earnings = (normal_minutes * assign.member.hourly_wage) + (premium_minutes * assign.member.hourly_wage * 1.25)
                 earnings_map[assign.member.id] += earnings / 60
         
-        # Add earnings for paid leaves
         for pl in paid_leaves:
             if pl.member.employee_type == 'hourly' and pl.member.hourly_wage:
                 earnings_map[pl.member.id] += (pl.hours * pl.member.hourly_wage)
@@ -128,7 +150,7 @@ class ScheduleDataView(APIView):
             'availabilities': availability_serializer.data,
             'other_assignments': other_serializer.data,
             'designated_holidays': designated_holiday_serializer.data,
-            'paid_leaves': paid_leave_serializer.data, # Added
+            'paid_leaves': paid_leave_serializer.data,
             'earnings': {k: round(v) for k, v in earnings_map.items()},
         })
 
@@ -139,6 +161,11 @@ class GenerateShiftView(APIView):
         end_date = request.data.get('end_date')
         if not start_date or not end_date or not department_id:
             return Response({'error': 'department_id, start_date and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Ensure the user has access to this department
+        if not Department.objects.filter(id=department_id, created_by=request.user).exists():
+            return Response({'error': 'Invalid department'}, status=status.HTTP_403_FORBIDDEN)
+
         result = generate_schedule(department_id, start_date, end_date)
         return Response(result, status=status.HTTP_200_OK)
 
@@ -149,22 +176,16 @@ class ManualAssignmentView(APIView):
         pattern_id = request.data.get('pattern_id')
         
         member = Member.objects.get(id=member_id)
+        if member.created_by != request.user:
+            return Response(status=status.HTTP_403_FORBIDDEN)
 
         DesignatedHoliday.objects.filter(member_id=member_id, date=shift_date).delete()
-        PaidLeave.objects.filter(member_id=member_id, date=shift_date).delete() # Added
+        PaidLeave.objects.filter(member_id=member_id, date=shift_date).delete()
         
-        Assignment.objects.filter(
-            member_id=member_id, 
-            shift_date=shift_date,
-            member__department_id=member.department.id
-        ).delete()
-        OtherAssignment.objects.filter(
-            member_id=member_id, 
-            shift_date=shift_date,
-            member__department_id=member.department.id
-        ).delete()
+        Assignment.objects.filter(member_id=member_id, shift_date=shift_date).delete()
+        OtherAssignment.objects.filter(member_id=member_id, shift_date=shift_date).delete()
         if pattern_id:
-            Assignment.objects.create(member_id=member_id, shift_pattern_id=pattern_id, shift_date=shift_date)
+            Assignment.objects.create(member_id=member_id, shift_pattern_id=pattern_id, shift_date=shift_date, created_by=request.user)
         return Response(status=status.HTTP_200_OK)
 
 class OtherAssignmentView(APIView):
@@ -174,22 +195,16 @@ class OtherAssignmentView(APIView):
         activity_name = request.data.get('activity_name')
         
         member = Member.objects.get(id=member_id)
+        if member.created_by != request.user:
+            return Response(status=status.HTTP_403_FORBIDDEN)
 
         DesignatedHoliday.objects.filter(member_id=member_id, date=shift_date).delete()
-        PaidLeave.objects.filter(member_id=member_id, date=shift_date).delete() # Added
+        PaidLeave.objects.filter(member_id=member_id, date=shift_date).delete()
         
-        Assignment.objects.filter(
-            member_id=member_id, 
-            shift_date=shift_date,
-            member__department_id=member.department.id
-        ).delete()
-        OtherAssignment.objects.filter(
-            member_id=member_id, 
-            shift_date=shift_date,
-            member__department_id=member.department.id
-        ).delete()
+        Assignment.objects.filter(member_id=member_id, shift_date=shift_date).delete()
+        OtherAssignment.objects.filter(member_id=member_id, shift_date=shift_date).delete()
         if activity_name:
-            OtherAssignment.objects.create(member_id=member_id, shift_date=shift_date, activity_name=activity_name)
+            OtherAssignment.objects.create(member_id=member_id, shift_date=shift_date, activity_name=activity_name, created_by=request.user)
         return Response(status=status.HTTP_200_OK)
 
 class BulkFixedAssignmentView(APIView):
@@ -198,13 +213,19 @@ class BulkFixedAssignmentView(APIView):
         if not assignments:
             return Response({'error': 'No assignments provided'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Security check: ensure all members belong to the current user
+        member_ids = {assign['member_id'] for assign in assignments}
+        if Member.objects.filter(id__in=member_ids, created_by=request.user).count() != len(member_ids):
+            return Response({'error': 'Invalid member ID included'}, status=status.HTTP_403_FORBIDDEN)
+
         fixed_assignments_to_create = []
         for assign in assignments:
             fixed_assignments_to_create.append(
                 FixedAssignment(
                     member_id=assign['member_id'],
                     shift_pattern_id=assign['shift_pattern_id'],
-                    shift_date=assign['shift_date']
+                    shift_date=assign['shift_date'],
+                    created_by=request.user
                 )
             )
         
@@ -221,25 +242,25 @@ class FixedAssignmentView(APIView):
         if not all([member_id, shift_date]):
             return Response({'error': 'member_id and shift_date are required'}, status=status.HTTP_400_BAD_REQUEST)
 
+        member = Member.objects.get(id=member_id)
+        if member.created_by != request.user:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
         DesignatedHoliday.objects.filter(member_id=member_id, date=shift_date).delete()
-        PaidLeave.objects.filter(member_id=member_id, date=shift_date).delete() # Added
+        PaidLeave.objects.filter(member_id=member_id, date=shift_date).delete()
         
-        # Delete any existing generated assignment for this member and date
         Assignment.objects.filter(member_id=member_id, shift_date=shift_date).delete()
         
-        # If a pattern_id is provided, create or update the fixed assignment
         if pattern_id:
             FixedAssignment.objects.update_or_create(
                 member_id=member_id,
                 shift_date=shift_date,
-                defaults={'shift_pattern_id': pattern_id}
+                defaults={'shift_pattern_id': pattern_id, 'created_by': request.user}
             )
-        # If no pattern_id is provided (e.g., 'delete' was selected), delete the fixed assignment
         else:
             FixedAssignment.objects.filter(member_id=member_id, shift_date=shift_date).delete()
             
         return Response(status=status.HTTP_200_OK)
-
 
 class DesignatedHolidayView(APIView):
     def post(self, request, *args, **kwargs):
@@ -249,24 +270,26 @@ class DesignatedHolidayView(APIView):
         if not all([member_id, date]):
             return Response({'error': 'member_id and date are required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # If it doesn't exist, create it. If it exists, do nothing.
+        member = Member.objects.get(id=member_id)
+        if member.created_by != request.user:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
         holiday, created = DesignatedHoliday.objects.get_or_create(
             member_id=member_id,
-            date=date
+            date=date,
+            defaults={'created_by': request.user}
         )
 
         if created:
-            # it was created, so clear any other assignments for that day
             Assignment.objects.filter(member_id=member_id, shift_date=date).delete()
             FixedAssignment.objects.filter(member_id=member_id, shift_date=date).delete()
             OtherAssignment.objects.filter(member_id=member_id, shift_date=date).delete()
-            PaidLeave.objects.filter(member_id=member_id, date=date).delete() # Added
+            PaidLeave.objects.filter(member_id=member_id, date=date).delete()
             action = "created"
         else:
             action = "already_exists"
             
         return Response({'status': f'holiday {action}'}, status=status.HTTP_200_OK)
-
 
 class PaidLeaveView(APIView):
     def post(self, request, *args, **kwargs):
@@ -276,17 +299,20 @@ class PaidLeaveView(APIView):
         if not all([member_id, date]):
             return Response({'error': 'member_id and date are required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Delete any other assignments for this member and date
+        member = Member.objects.get(id=member_id)
+        if member.created_by != request.user:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
         Assignment.objects.filter(member_id=member_id, shift_date=date).delete()
         FixedAssignment.objects.filter(member_id=member_id, shift_date=date).delete()
         OtherAssignment.objects.filter(member_id=member_id, shift_date=date).delete()
         DesignatedHoliday.objects.filter(member_id=member_id, date=date).delete()
-        LeaveRequest.objects.filter(member_id=member_id, leave_date=date).delete() # Also remove LeaveRequest if it exists
+        LeaveRequest.objects.filter(member_id=member_id, leave_date=date).delete()
 
-        # Create or get the PaidLeave
         paid_leave, created = PaidLeave.objects.get_or_create(
             member_id=member_id,
-            date=date
+            date=date,
+            defaults={'created_by': request.user}
         )
 
         if created:
@@ -303,21 +329,31 @@ class PaidLeaveView(APIView):
         if not all([member_id, date]):
             return Response({'error': 'member_id and date are required'}, status=status.HTTP_400_BAD_REQUEST)
         
-        deleted_count, _ = PaidLeave.objects.filter(member_id=member_id, date=date).delete()
+        deleted_count, _ = PaidLeave.objects.filter(member_id=member_id, date=date, created_by=request.user).delete()
         if deleted_count > 0:
             return Response({'status': 'deleted'}, status=status.HTTP_200_OK)
         return Response({'status': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
 
-
 class SolverSettingsDetailView(generics.RetrieveUpdateAPIView):
     queryset = SolverSettings.objects.all()
     serializer_class = SolverSettingsSerializer
-    lookup_field = 'department_id' # Use department_id as the lookup field
+    lookup_field = 'department_id'
+
+    def get_queryset(self):
+        return self.queryset.filter(created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        serializer.save(created_by=self.request.user)
 
 class SolverSettingsListView(generics.ListCreateAPIView):
     queryset = SolverSettings.objects.all()
     serializer_class = SolverSettingsSerializer
 
+    def get_queryset(self):
+        return self.queryset.filter(created_by=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
 
 class BulkAssignmentDeleteView(APIView):
     def post(self, request, *args, **kwargs):
@@ -325,7 +361,7 @@ class BulkAssignmentDeleteView(APIView):
         if not assignment_ids:
             return Response({'error': 'No assignment IDs provided'}, status=status.HTTP_400_BAD_REQUEST)
         
-        Assignment.objects.filter(id__in=assignment_ids).delete()
+        Assignment.objects.filter(id__in=assignment_ids, created_by=request.user).delete()
         
         return Response({'status': 'success'}, status=status.HTTP_200_OK)
 
@@ -335,6 +371,6 @@ class BulkFixedAssignmentDeleteView(APIView):
         if not fixed_assignment_ids:
             return Response({'error': 'No fixed assignment IDs provided'}, status=status.HTTP_400_BAD_REQUEST)
         
-        FixedAssignment.objects.filter(id__in=fixed_assignment_ids).delete()
+        FixedAssignment.objects.filter(id__in=fixed_assignment_ids, created_by=request.user).delete()
         
         return Response({'status': 'success'}, status=status.HTTP_200_OK)

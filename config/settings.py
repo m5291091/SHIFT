@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'core',  # または 'core.apps.CoreConfig' これがあるか確認
     'corsheaders', # これを追加
     'rest_framework', # これを追加
+    'rest_framework_simplejwt', # これを追加
 ]
 
 MIDDLEWARE = [
@@ -223,3 +224,12 @@ ADMIN_INTERFACE_MENU = [
         ]
     },
 ]
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    )
+}

@@ -7,3 +7,4 @@ ortools
 django-cors-headers
 gunicorn
 whitenoise
+djangorestframework-simplejwt
