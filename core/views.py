@@ -411,3 +411,33 @@ class BulkFixedAssignmentDeleteView(APIView):
         FixedAssignment.objects.filter(id__in=fixed_assignment_ids, created_by=request.user).delete()
         
         return Response({'status': 'success'}, status=status.HTTP_200_OK)
+
+class BulkOtherAssignmentDeleteView(APIView):
+    def post(self, request, *args, **kwargs):
+        other_assignment_ids = request.data.get('other_assignment_ids', [])
+        if not other_assignment_ids:
+            return Response({'error': 'No other assignment IDs provided'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        OtherAssignment.objects.filter(id__in=other_assignment_ids, created_by=request.user).delete()
+        
+        return Response({'status': 'success'}, status=status.HTTP_200_OK)
+
+class BulkDesignatedHolidayDeleteView(APIView):
+    def post(self, request, *args, **kwargs):
+        designated_holiday_ids = request.data.get('designated_holiday_ids', [])
+        if not designated_holiday_ids:
+            return Response({'error': 'No designated holiday IDs provided'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        DesignatedHoliday.objects.filter(id__in=designated_holiday_ids, created_by=request.user).delete()
+        
+        return Response({'status': 'success'}, status=status.HTTP_200_OK)
+
+class BulkPaidLeaveDeleteView(APIView):
+    def post(self, request, *args, **kwargs):
+        paid_leave_ids = request.data.get('paid_leave_ids', [])
+        if not paid_leave_ids:
+            return Response({'error': 'No paid leave IDs provided'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        PaidLeave.objects.filter(id__in=paid_leave_ids, created_by=request.user).delete()
+        
+        return Response({'status': 'success'}, status=status.HTTP_200_OK)
