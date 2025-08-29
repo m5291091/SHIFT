@@ -63,7 +63,7 @@ onMounted(async () => {
 watch(selectedDepartment, async (newDepartmentId) => {
   if (newDepartmentId) {
     try {
-      const response = await axios.get(`/shift-patterns/`, { params: { department_id: newDepartmentId } })
+      const response = await axios.get(`/api/v1/shift-patterns/`, { params: { department_id: newDepartmentId } })
       shiftPatterns.value = response.data
     } catch (error) {
       console.error('シフトパターンの取得に失敗しました:', error)
@@ -75,7 +75,7 @@ watch(selectedDepartment, async (newDepartmentId) => {
 
 const fetchAllSolverPatterns = async (departmentId) => {
   try {
-    const response = await axios.get(`/solver-settings/`, { params: { department: departmentId } })
+    const response = await axios.get(`/api/v1/solver-settings/`, { params: { department: departmentId } })
     solverPatterns.value = response.data
     if (solverPatterns.value.length > 0) {
       // Try to find a default pattern, otherwise select the first one
@@ -137,7 +137,7 @@ const saveCurrentSolverSettings = async () => {
   try {
     if (selectedSolverPatternId.value) {
       // Update existing pattern
-      await axios.put(`/solver-settings/${selectedSolverPatternId.value}/`, solverSettings.value)
+      await axios.put(`/api/v1/solver-settings/${selectedSolverPatternId.value}/`, solverSettings.value)
       message.value = 'ソルバー設定が更新されました。'
     } else {
       // This case should ideally not happen if a pattern is always selected/created
@@ -166,7 +166,7 @@ const saveNewSolverPattern = async () => {
       name: newPatternName.value.trim(),
       is_default: false // New patterns are not default by default
     }
-    const response = await axios.post(`/solver-settings/`, newPatternData)
+    const response = await axios.post(`/api/v1/solver-settings/`, newPatternData)
     message.value = `新しいパターン「${newPatternName.value}」が保存されました。`
     newPatternName.value = '' // Clear input
     await fetchAllSolverPatterns(selectedDepartment.value) // Refresh patterns
@@ -191,11 +191,11 @@ const setDefaultPattern = async () => {
     // First, set all patterns for this department to not default
     for (const pattern of solverPatterns.value) {
       if (pattern.is_default && pattern.id !== selectedSolverPatternId.value) {
-        await axios.put(`/solver-settings/${pattern.id}/`, { is_default: false })
+        await axios.put(`/api/v1/solver-settings/${pattern.id}/`, { is_default: false })
       }
     }
     // Then, set the selected pattern as default
-    await axios.put(`/solver-settings/${selectedSolverPatternId.value}/`, { is_default: true })
+    await axios.put(`/api/v1/solver-settings/${selectedSolverPatternId.value}/`, { is_default: true })
     message.value = 'デフォルトパターンが設定されました。'
     await fetchAllSolverPatterns(selectedDepartment.value) // Refresh patterns to reflect changes
   } catch (error) {
@@ -405,12 +405,12 @@ const handleShiftChange = async (memberId, date, event) => {
 
   try {
     if (selectedValue === 'designated-holiday') {
-      await axios.post('/designated-holiday/', {
+      await axios.post('/api/v1/designated-holiday/', {
         member_id: memberId,
         date: date,
       })
     } else if (selectedValue === 'paid-leave') { // Added
-      await axios.post('/paid-leave/', {
+      await axios.post('/api/v1/paid-leave/', {
         member_id: memberId,
         date: date,
       })
@@ -444,7 +444,7 @@ const handleSaveOtherAssignment = async (activityName) => {
   message.value = '「その他」の割り当てを保存中...'
 
   try {
-    await axios.post('/other-assignment/', {
+    await axios.post('/api/v1/other-assignment/', {
       member_id: selectedMemberForModal.value.id,
       shift_date: selectedDateForModal.value,
       activity_name: activityName,
@@ -473,7 +473,7 @@ const generateShifts = async () => {
   message.value = 'シフトを生成中です...'
 
   try {
-    const response = await axios.post('/generate-shifts/', {
+    const response = await axios.post('/api/v1/generate-shifts/', {
       department_id: selectedDepartment.value,
       start_date: startDate.value,
       end_date: endDate.value,
@@ -501,7 +501,7 @@ const generateShifts = async () => {
 const fetchScheduleData = async (shouldFetchAssignments = true) => {
   if (!selectedDepartment.value) return
   try {
-    const response = await axios.get('/schedule-data/', {
+    const response = await axios.get('/api/v1/schedule-data/', {
       params: {
         department_id: selectedDepartment.value,
         start_date: startDate.value,
@@ -626,7 +626,7 @@ const confirmSelectedShifts = async () => {
   message.value = '選択されたシフトを固定中...'
 
   try {
-    await axios.post('/bulk-fixed-assignments/', {
+    await axios.post('/api/v1/bulk-fixed-assignments/', {
       assignments: assignmentsToFix,
     })
     message.value = 'シフトが正常に固定されました。'
@@ -686,10 +686,10 @@ const deleteSelectedShifts = async () => {
   try {
     const deletePromises = []
     if (assignmentIdsToDelete.length > 0) {
-      deletePromises.push(axios.post('/bulk-delete-assignments/', { assignment_ids: assignmentIdsToDelete }))
+      deletePromises.push(axios.post('/api/v1/bulk-delete-assignments/', { assignment_ids: assignmentIdsToDelete }))
     }
     if (fixedAssignmentIdsToDelete.length > 0) {
-      deletePromises.push(axios.post('/bulk-delete-fixed-assignments/', { fixed_assignment_ids: fixedAssignmentIdsToDelete }))
+      deletePromises.push(axios.post('/api/v1/bulk-delete-fixed-assignments/', { fixed_assignment_ids: fixedAssignmentIdsToDelete }))
     }
 
     await Promise.all(deletePromises)
@@ -731,7 +731,7 @@ const deleteShift = async (memberId, date) => {
 
 const fetchSolverSettings = async (departmentId) => {
   try {
-    const response = await axios.get(`/solver-settings/${departmentId}/`)
+    const response = await axios.get(`/api/v1/solver-settings/${departmentId}/`)
     solverSettings.value = response.data
   } catch (error) {
     console.error('ソルバー設定の取得に失敗しました:', error)
@@ -1216,4 +1216,3 @@ tfoot {
   cursor: not-allowed;
 }
 </style>
-
