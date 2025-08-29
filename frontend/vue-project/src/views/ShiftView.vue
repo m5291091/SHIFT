@@ -416,7 +416,7 @@ const handleShiftChange = async (memberId, date, event) => {
       })
     } else {
       const patternId = selectedValue
-      await axios.post('/fixed-assignment/', {
+      await axios.post('/api/v1/fixed-assignment/', {
         member_id: memberId,
         shift_date: date,
         pattern_id: patternId,
@@ -714,7 +714,7 @@ const deleteShift = async (memberId, date) => {
   isLoading.value = true
   message.value = 'シフトを削除中...'
   try {
-    await axios.post('/fixed-assignment/', {
+    await axios.post('/api/v1/fixed-assignment/', {
       member_id: memberId,
       shift_date: date,
       pattern_id: null,
@@ -756,7 +756,7 @@ const saveSolverSettings = async () => {
   isLoading.value = true
   message.value = 'ソルバー設定を保存中...'
   try {
-    await axios.put(`/solver-settings/${selectedDepartment.value}/`, solverSettings.value)
+    await axios.put(`/api/v1/solver-settings/${selectedDepartment.value}/`, solverSettings.value)
     message.value = 'ソルバー設定が保存されました。'
   } catch (error) {
     message.value = 'ソルバー設定の保存に失敗しました。'
