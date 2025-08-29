@@ -50,7 +50,7 @@ const settingDescriptions = {
 
 onMounted(async () => {
   try {
-    const deptResponse = await axios.get('/departments/')
+    const deptResponse = await axios.get('/api/v1/departments/')
     departments.value = deptResponse.data
     if (departments.value.length > 0) {
       selectedDepartment.value = departments.value[0].id
