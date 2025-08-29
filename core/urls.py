@@ -14,7 +14,8 @@ from .views import (
     SolverSettingsListView,
     PaidLeaveView, # Added
     BulkAssignmentDeleteView,
-    BulkFixedAssignmentDeleteView
+    BulkFixedAssignmentDeleteView,
+    ShiftExportExcelView,
 )
 
 urlpatterns = [
@@ -34,4 +35,5 @@ urlpatterns = [
     path('paid-leave/', PaidLeaveView.as_view(), name='paid-leave'), # Added
     path('bulk-delete-assignments/', BulkAssignmentDeleteView.as_view(), name='bulk-delete-assignments'),
     path('bulk-delete-fixed-assignments/', BulkFixedAssignmentDeleteView.as_view(), name='bulk-delete-fixed-assignments'),
+    path('shifts/export/', ShiftExportExcelView.as_view(), name='shift-export-excel'),
 ]

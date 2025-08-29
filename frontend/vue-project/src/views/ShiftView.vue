@@ -765,6 +765,54 @@ const saveSolverSettings = async () => {
     isLoading.value = false
   }
 }
+
+const exportToExcel = async () => {
+  if (!selectedDepartment.value || !startDate.value || !endDate.value) {
+    message.value = 'Excelに出力するには、部署、開始日、終了日を選択してください。'
+    return
+  }
+
+  isLoading.value = true
+  message.value = 'Excelファイルを生成中...'
+
+  try {
+    const response = await axios.get('/api/shifts/export/', {
+      params: {
+        department_id: selectedDepartment.value,
+        start_date: startDate.value,
+        end_date: endDate.value,
+      },
+      responseType: 'blob', // Important for file downloads
+    })
+
+    const url = window.URL.createObjectURL(new Blob([response.data]))
+    const link = document.createElement('a')
+    link.href = url
+    
+    // Extract filename from content-disposition header
+    const contentDisposition = response.headers['content-disposition']
+    let filename = `shift_schedule_${startDate.value}.xlsx` // fallback
+    if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="(.+)"/)
+        if (filenameMatch.length > 1) {
+            filename = filenameMatch[1]
+        }
+    }
+
+    link.setAttribute('download', filename)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+
+    message.value = 'Excelファイルのダウンロードが開始されました。'
+  } catch (error) {
+    message.value = 'Excelファイルの生成に失敗しました。'
+    console.error('Error exporting to Excel:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
 </script>
 
 <template>
@@ -782,6 +830,7 @@ const saveSolverSettings = async () => {
       @generate-shifts="generateShifts"
       @confirm-selected-shifts="confirmSelectedShifts"
       @delete-selected-shifts="deleteSelectedShifts"
+      @export-to-excel="exportToExcel"
     />
 
     <p>{{ message }}</p>

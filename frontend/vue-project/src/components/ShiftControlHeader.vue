@@ -14,6 +14,7 @@ const emit = defineEmits([
   'generate-shifts',
   'confirm-selected-shifts',
   'delete-selected-shifts',
+  'export-to-excel',
 ])
 
 const handleDepartmentChange = (event) => {
@@ -39,6 +40,10 @@ const onConfirmSelectedShifts = () => {
 const onDeleteSelectedShifts = () => {
   emit('delete-selected-shifts')
 }
+
+const onExportToExcel = () => {
+  emit('export-to-excel')
+}
 </script>
 
 <template>
@@ -59,6 +64,9 @@ const onDeleteSelectedShifts = () => {
     </button>
     <button @click="onDeleteSelectedShifts" :disabled="isLoading" style="margin-left: 10px; background-color: #dc3545; color: white;">
       選択したシフトを削除
+    </button>
+    <button @click="onExportToExcel" :disabled="isLoading" style="margin-left: 10px; background-color: #28a745; color: white;">
+      Excelに出力
     </button>
   </div>
 </template>
