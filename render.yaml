@@ -8,7 +8,7 @@ services:
     plan: free # 必要に応じて変更 (e.g., starter)
     buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput"
     #startCommand: "python manage.py createsuperuser --noinput --username $DJANGO_SUPERUSER_USERNAME --email $DJANGO_SUPERUSER_EMAIL && gunicorn config.wsgi:application"
-    startCommand: "gunicorn config.wsgi:application --timeout 180"
+    startCommand: "gunicorn config.wsgi:application --worker-class gevent --timeout 180"
     #startCommand: "python manage.py migrate && gunicorn config.wsgi:application"
     envVars:
       - key: SECRET_KEY

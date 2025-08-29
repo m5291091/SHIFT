@@ -9,3 +9,4 @@ gunicorn
 whitenoise
 djangorestframework-simplejwt
 openpyxl
+gevent
