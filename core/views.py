@@ -477,19 +477,19 @@ from io import BytesIO
 
 class ShiftExportExcelView(APIView):
     def get(self, request, *args, **kwargs):
-        department_id = self.request.query_params.get('department_id')
-        start_date_str = self.request.query_params.get('start_date')
-        end_date_str = self.request.query_params.get('end_date')
-        
-        if not all([department_id, start_date_str, end_date_str]):
-            return Response({'error': 'department_id, start_date, and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
-
         try:
+            department_id = self.request.query_params.get('department_id')
+            start_date_str = self.request.query_params.get('start_date')
+            end_date_str = self.request.query_params.get('end_date')
+            
+            if not all([department_id, start_date_str, end_date_str]):
+                return Response({'error': 'department_id, start_date, and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
+
             start_date = date.fromisoformat(start_date_str)
             end_date = date.fromisoformat(end_date_str)
             user = self.request.user
 
-            # Fetch data (same as before)
+            # Fetch data
             members = Member.objects.filter(created_by=user, department_id=department_id).order_by('sort_order', 'name')
             assignments = Assignment.objects.filter(
                 created_by=user, member__department_id=department_id, shift_date__range=[start_date, end_date]
@@ -504,7 +504,7 @@ class ShiftExportExcelView(APIView):
                 created_by=user, member__department_id=department_id, date__range=[start_date, end_date]
             ).select_related('member')
 
-            # Process data into a dictionary (same as before)
+            # Data processing
             shift_data = defaultdict(dict)
             for assignment in assignments:
                 if assignment.shift_pattern:
@@ -516,72 +516,82 @@ class ShiftExportExcelView(APIView):
             for holiday in designated_holidays:
                 shift_data[holiday.date][holiday.member_id] = "公休"
 
-            # --- Start HTML Generation ---
-            html = '''
-            <!DOCTYPE html>
-            <html lang="ja">
-            <head>
-                <meta charset="UTF-8">
-                <style>
-                    body { font-family: sans-serif; }
-                    table { border-collapse: collapse; white-space: nowrap; }
-                    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
-                    th { background-color: #f4f4f4; font-weight: bold; }
-                    .saturday { background-color: #ADD8E6; }
-                    .sunday { background-color: #FFC0CB; }
-                </style>
-            </head>
-            <body>
-            '''
-            
-            html += f'<h2>{start_date.strftime("%Y年%m月")} シフト表</h2>'
-            html += '<table>'
+            # --- Create Excel workbook using openpyxl ---
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = f"{start_date.strftime('%Y年%m月')} シフト表"
 
-            # Header row
-            html += '<thead><tr><th>日付</th><th>曜日</th>'
-            for member in members:
-                html += f'<th>{member.name}</th>'
-            html += '</tr></thead>'
+            # Header
+            header = ['日付', '曜日'] + [member.name for member in members]
+            ws.append(header)
 
-            # Body rows
-            html += '<tbody>'
+            # Styles
+            header_font = Font(bold=True)
+            center_align = Alignment(horizontal='center', vertical='center')
+            thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+            saturday_fill = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
+            sunday_fill = PatternFill(start_color="FFC0CB", end_color="FFC0CB", fill_type="solid")
+
+            for cell in ws[1]:
+                cell.font = header_font
+                cell.alignment = center_align
+                cell.border = thin_border
+
+            # Body
             current_date = start_date
             while current_date <= end_date:
-                weekday = current_date.weekday()
-                row_class = ''
-                if weekday == 5: # Saturday
-                    row_class = 'saturday'
-                elif weekday == 6: # Sunday
-                    row_class = 'sunday'
-
-                html += f'<tr class="{row_class}">'
-                html += f'<td>{current_date.strftime("%d")}</td>'
-                html += f'<td>{current_date.strftime("%a")}</td>'
-
-                for member in members:
-                    cell_content = shift_data[current_date].get(member.id, '')
-                    html += f'<td>{cell_content}</td>'
+                day_of_week = current_date.strftime('%a')
+                row_data = [current_date.strftime('%d'), day_of_week]
                 
-                html += '</tr>'
-                current_date += timedelta(days=1)
-            
-            html += '</tbody></table></body></html>'
+                for member in members:
+                    row_data.append(shift_data[current_date].get(member.id, ''))
 
-            # --- Create HttpResponse ---
+                ws.append(row_data)
+                
+                row_index = ws.max_row
+                for cell in ws[row_index]:
+                    cell.alignment = center_align
+                    cell.border = thin_border
+                
+                if current_date.weekday() == 5: # Saturday
+                    for cell in ws[row_index]:
+                        cell.fill = saturday_fill
+                elif current_date.weekday() == 6: # Sunday
+                    for cell in ws[row_index]:
+                        cell.fill = sunday_fill
+
+                current_date += timedelta(days=1)
+
+            # Adjust column widths
+            for i, column_cells in enumerate(ws.columns):
+                max_length = 0
+                column = utils.get_column_letter(i + 1)
+                for cell in column_cells:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = (max_length + 2)
+                ws.column_dimensions[column].width = adjusted_width
+
+            # Save to buffer
+            buffer = BytesIO()
+            wb.save(buffer)
+            buffer.seek(0)
+
             response = HttpResponse(
-                html.encode('utf-8'),
-                content_type='application/vnd.ms-excel; charset=utf-8'
+                buffer.getvalue(),
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             )
-            filename = f'shift_schedule_{start_date.strftime("%Y%m")}.xls'
-            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            response['Content-Disposition'] = f'attachment; filename="shift_schedule_{start_date.strftime("%Y%m")}.xlsx"'
             
             return response
 
         except Exception as e:
-            # Return a JSON response with the error for debugging
             import traceback
             return Response({
-                'error': 'An unexpected error occurred on the server.',
+                'error': 'An unexpected error occurred on the server while generating the Excel file.',
                 'exception': str(e),
                 'traceback': traceback.format_exc()
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
