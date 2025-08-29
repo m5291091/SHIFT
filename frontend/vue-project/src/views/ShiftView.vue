@@ -867,14 +867,6 @@ const saveSolverSettings = async () => {
                 class="shift-checkbox"
               />
 
-              <button
-                v-if="scheduleGrid[member.id]?.[header.date]?.type === 'assigned' || scheduleGrid[member.id]?.[header.date]?.type === 'fixed'"
-                @click="deleteShift(member.id, header.date)"
-                class="delete-shift-btn"
-              >
-                ✖️
-              </button>
-
               <select
                 v-if="scheduleGrid[member.id] && scheduleGrid[member.id][header.date] && scheduleGrid[member.id][header.date].type !== 'leave' && scheduleGrid[member.id][header.date].type !== 'paid-leave'"
                 :value="scheduleGrid[member.id][header.date].type === 'assigned' || scheduleGrid[member.id][header.date].type === 'fixed' ? scheduleGrid[member.id][header.date].patternId : scheduleGrid[member.id][header.date].type"
