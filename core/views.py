@@ -506,7 +506,8 @@ class ShiftExportExcelView(APIView):
         # Data processing
         shift_data = defaultdict(dict)
         for assignment in assignments:
-            shift_data[assignment.shift_date][assignment.member_id] = assignment.shift_pattern.short_name
+            if assignment.shift_pattern:
+                shift_data[assignment.shift_date][assignment.member_id] = assignment.shift_pattern.short_name
         for other in other_assignments:
             shift_data[other.shift_date][other.member_id] = other.activity_name
         for leave in paid_leaves:
