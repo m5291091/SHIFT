@@ -463,7 +463,19 @@ def generate_schedule(department_id, start_date_str, end_date_str):
                         f'{member.name} が連続勤務数上限 ({member.max_consecutive_work_days}日) を超過しました。'
                     )
 
-        serializer = AssignmentSerializer(new_assignments, many=True)
-        return {'success': True, 'infeasible_days': dict(infeasible_days_info), 'assignments': serializer.data}
+        # ... (previous code for infeasible_days_info)
+
+        assignments_to_create = []
+        for m in all_members:
+            for d in days:
+                for p in all_patterns:
+                    if (m.id, d, p.id) in shifts and solver.Value(shifts[(m.id, d, p.id)]) == 1:
+                        assignments_to_create.append({
+                            'member_id': m.id,
+                            'shift_pattern_id': p.id,
+                            'shift_date': d
+                        })
+
+        return {'success': True, 'infeasible_days': dict(infeasible_days_info), 'assignments': assignments_to_create}
     
     return {'success': False, 'infeasible_days': {'general': ['指定された期間でシフトを生成できませんでした。制約が厳しすぎるか、人員が不足している可能性があります。']}, 'assignments': []}

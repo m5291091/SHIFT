@@ -157,17 +157,54 @@ class ScheduleDataView(APIView):
 class GenerateShiftView(APIView):
     def post(self, request, *args, **kwargs):
         department_id = request.data.get('department_id')
-        start_date = request.data.get('start_date')
-        end_date = request.data.get('end_date')
-        if not start_date or not end_date or not department_id:
+        start_date_str = request.data.get('start_date')
+        end_date_str = request.data.get('end_date')
+        if not start_date_str or not end_date_str or not department_id:
             return Response({'error': 'department_id, start_date and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Ensure the user has access to this department
         if not Department.objects.filter(id=department_id, created_by=request.user).exists():
             return Response({'error': 'Invalid department'}, status=status.HTTP_403_FORBIDDEN)
 
-        result = generate_schedule(department_id, start_date, end_date)
-        return Response(result, status=status.HTTP_200_OK)
+        # Run the solver
+        result = generate_schedule(department_id, start_date_str, end_date_str)
+
+        if result.get('success'):
+            # Clear previous assignments for this period
+            start_date = date.fromisoformat(start_date_str)
+            end_date = date.fromisoformat(end_date_str)
+            Assignment.objects.filter(
+                shift_date__range=[start_date, end_date],
+                member__department_id=department_id,
+                created_by=request.user
+            ).delete()
+
+            # Create new assignments from solver result, adding the current user
+            assignments_data = result.get('assignments', [])
+            new_assignments = []
+            for assign_data in assignments_data:
+                new_assignments.append(
+                    Assignment(
+                        member_id=assign_data['member_id'],
+                        shift_pattern_id=assign_data['shift_pattern_id'],
+                        shift_date=assign_data['shift_date'],
+                        created_by=request.user
+                    )
+                )
+            
+            if new_assignments:
+                Assignment.objects.bulk_create(new_assignments)
+            
+            # Serialize the newly created objects to return to the frontend
+            serializer = AssignmentSerializer(new_assignments, many=True)
+            response_data = {
+                'success': True,
+                'infeasible_days': result.get('infeasible_days', {}),
+                'assignments': serializer.data
+            }
+            return Response(response_data, status=status.HTTP_200_OK)
+        else:
+            # If solver failed, just return the failure message
+            return Response(result, status=status.HTTP_200_OK)
 
 class ManualAssignmentView(APIView):
     def post(self, request, *args, **kwargs):
