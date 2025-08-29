@@ -484,107 +484,104 @@ class ShiftExportExcelView(APIView):
         if not all([department_id, start_date_str, end_date_str]):
             return Response({'error': 'department_id, start_date, and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        start_date = date.fromisoformat(start_date_str)
-        end_date = date.fromisoformat(end_date_str)
-        user = self.request.user
+        try:
+            start_date = date.fromisoformat(start_date_str)
+            end_date = date.fromisoformat(end_date_str)
+            user = self.request.user
 
-        # Fetch data
-        members = Member.objects.filter(created_by=user, department_id=department_id).order_by('sort_order', 'name')
-        assignments = Assignment.objects.filter(
-            created_by=user, member__department_id=department_id, shift_date__range=[start_date, end_date]
-        ).select_related('member', 'shift_pattern')
-        other_assignments = OtherAssignment.objects.filter(
-            created_by=user, member__department_id=department_id, shift_date__range=[start_date, end_date]
-        ).select_related('member')
-        paid_leaves = PaidLeave.objects.filter(
-            created_by=user, member__department_id=department_id, date__range=[start_date, end_date]
-        ).select_related('member')
-        designated_holidays = DesignatedHoliday.objects.filter(
-            created_by=user, member__department_id=department_id, date__range=[start_date, end_date]
-        ).select_related('member')
+            # Fetch data (same as before)
+            members = Member.objects.filter(created_by=user, department_id=department_id).order_by('sort_order', 'name')
+            assignments = Assignment.objects.filter(
+                created_by=user, member__department_id=department_id, shift_date__range=[start_date, end_date]
+            ).select_related('member', 'shift_pattern')
+            other_assignments = OtherAssignment.objects.filter(
+                created_by=user, member__department_id=department_id, shift_date__range=[start_date, end_date]
+            ).select_related('member')
+            paid_leaves = PaidLeave.objects.filter(
+                created_by=user, member__department_id=department_id, date__range=[start_date, end_date]
+            ).select_related('member')
+            designated_holidays = DesignatedHoliday.objects.filter(
+                created_by=user, member__department_id=department_id, date__range=[start_date, end_date]
+            ).select_related('member')
 
-        # Data processing
-        shift_data = defaultdict(dict)
-        for assignment in assignments:
-            if assignment.shift_pattern:
-                shift_data[assignment.shift_date][assignment.member_id] = assignment.shift_pattern.short_name
-        for other in other_assignments:
-            shift_data[other.shift_date][other.member_id] = other.activity_name
-        for leave in paid_leaves:
-            shift_data[leave.date][leave.member_id] = "有給"
-        for holiday in designated_holidays:
-            shift_data[holiday.date][holiday.member_id] = "公休"
+            # Process data into a dictionary (same as before)
+            shift_data = defaultdict(dict)
+            for assignment in assignments:
+                if assignment.shift_pattern:
+                    shift_data[assignment.shift_date][assignment.member_id] = assignment.shift_pattern.short_name
+            for other in other_assignments:
+                shift_data[other.shift_date][other.member_id] = other.activity_name
+            for leave in paid_leaves:
+                shift_data[leave.date][leave.member_id] = "有給"
+            for holiday in designated_holidays:
+                shift_data[holiday.date][holiday.member_id] = "公休"
 
-        # Create Excel workbook
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = f"{start_date.strftime('%Y年%m月')} シフト表"
-
-        # Header
-        header = ['日付', '曜日'] + [member.name for member in members]
-        ws.append(header)
-
-        # Styles
-        header_font = Font(bold=True)
-        center_align = Alignment(horizontal='center', vertical='center')
-        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-        
-        for cell in ws[1]:
-            cell.font = header_font
-            cell.alignment = center_align
-            cell.border = thin_border
-
-        # Body
-        saturday_fill = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
-        sunday_fill = PatternFill(start_color="FFC0CB", end_color="FFC0CB", fill_type="solid")
-        
-        current_date = start_date
-        while current_date <= end_date:
-            day_of_week = current_date.strftime('%a')
-            row_data = [current_date.strftime('%d'), day_of_week]
+            # --- Start HTML Generation ---
+            html = '''
+            <!DOCTYPE html>
+            <html lang="ja">
+            <head>
+                <meta charset="UTF-8">
+                <style>
+                    body { font-family: sans-serif; }
+                    table { border-collapse: collapse; white-space: nowrap; }
+                    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+                    th { background-color: #f4f4f4; font-weight: bold; }
+                    .saturday { background-color: #ADD8E6; }
+                    .sunday { background-color: #FFC0CB; }
+                </style>
+            </head>
+            <body>
+            '''
             
+            html += f'<h2>{start_date.strftime("%Y年%m月")} シフト表</h2>'
+            html += '<table>'
+
+            # Header row
+            html += '<thead><tr><th>日付</th><th>曜日</th>'
             for member in members:
-                row_data.append(shift_data[current_date].get(member.id, ''))
+                html += f'<th>{member.name}</th>'
+            html += '</tr></thead>'
 
-            ws.append(row_data)
+            # Body rows
+            html += '<tbody>'
+            current_date = start_date
+            while current_date <= end_date:
+                weekday = current_date.weekday()
+                row_class = ''
+                if weekday == 5: # Saturday
+                    row_class = 'saturday'
+                elif weekday == 6: # Sunday
+                    row_class = 'sunday'
+
+                html += f'<tr class="{row_class}">'
+                html += f'<td>{current_date.strftime("%d")}</td>'
+                html += f'<td>{current_date.strftime("%a")}</td>'
+
+                for member in members:
+                    cell_content = shift_data[current_date].get(member.id, '')
+                    html += f'<td>{cell_content}</td>'
+                
+                html += '</tr>'
+                current_date += timedelta(days=1)
             
-            # Apply styles to the row
-            row_index = ws.max_row
-            for cell in ws[row_index]:
-                cell.alignment = center_align
-                cell.border = thin_border
+            html += '</tbody></table></body></html>'
+
+            # --- Create HttpResponse ---
+            response = HttpResponse(
+                html.encode('utf-8'),
+                content_type='application/vnd.ms-excel; charset=utf-8'
+            )
+            filename = f'shift_schedule_{start_date.strftime("%Y%m")}.xls'
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
             
-            if current_date.weekday() == 5: # Saturday
-                for cell in ws[row_index]:
-                    cell.fill = saturday_fill
-            elif current_date.weekday() == 6: # Sunday
-                for cell in ws[row_index]:
-                    cell.fill = sunday_fill
+            return response
 
-            current_date += timedelta(days=1)
-
-        # Adjust column widths
-        for i, column_cells in enumerate(ws.columns):
-            max_length = 0
-            column = openpyxl.utils.get_column_letter(i + 1)
-            for cell in column_cells:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = (max_length + 2)
-            ws.column_dimensions[column].width = adjusted_width
-
-        # Save to buffer
-        buffer = BytesIO()
-        wb.save(buffer)
-        buffer.seek(0)
-
-        response = HttpResponse(
-            buffer.getvalue(),
-            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-        response['Content-Disposition'] = f'attachment; filename="shift_schedule_{start_date.strftime("%Y%m")}.xlsx"'
-        
-        return response
+        except Exception as e:
+            # Return a JSON response with the error for debugging
+            import traceback
+            return Response({
+                'error': 'An unexpected error occurred on the server.',
+                'exception': str(e),
+                'traceback': traceback.format_exc()
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
