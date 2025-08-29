@@ -22,9 +22,11 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
+from core.views import signup
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('accounts/signup/', signup, name='signup'),
     path('accounts/', include('django.contrib.auth.urls')), # Add this line
     path('api/v1/', include('core.urls')), # この行を追加
     path('api/v1/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),

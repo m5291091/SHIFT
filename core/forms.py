@@ -1,5 +1,10 @@
 from django import forms
 from .models import Member, ShiftPattern
+from django.contrib.auth.forms import UserCreationForm
+
+class SignUpForm(UserCreationForm):
+    class Meta(UserCreationForm.Meta):
+        pass
 
 class BulkLeaveRequestForm(forms.Form):
     member = forms.ModelChoiceField(

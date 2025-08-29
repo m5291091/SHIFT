@@ -18,6 +18,7 @@ from .views import (
 )
 
 urlpatterns = [
+    # API endpoints
     path('departments/', DepartmentListView.as_view(), name='department-list'),
     path('members/', MemberListView.as_view(), name='member-list'),
     path('shift-patterns/', ShiftPatternListView.as_view(), name='shift-pattern-list'),

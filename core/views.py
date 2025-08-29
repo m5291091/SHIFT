@@ -1,3 +1,7 @@
+from django.shortcuts import render, redirect
+from django.contrib.auth import login
+from .forms import SignUpForm
+
 from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -7,6 +11,19 @@ from collections import defaultdict
 from .models import Member, Assignment, LeaveRequest, MemberAvailability, ShiftPattern, OtherAssignment, TimeSlotRequirement, FixedAssignment, Department, DesignatedHoliday, SolverSettings, PaidLeave
 from .serializers import MemberSerializer, AssignmentSerializer, MemberAvailabilitySerializer, ShiftPatternSerializer, OtherAssignmentSerializer, FixedAssignmentSerializer, DepartmentSerializer, DesignatedHolidaySerializer, SolverSettingsSerializer, PaidLeaveSerializer
 from .solver import generate_schedule
+
+def signup(request):
+    if request.method == 'POST':
+        form = SignUpForm(request.POST)
+        if form.is_valid():
+            user = form.save(commit=False)
+            user.is_staff = True
+            user.save()
+            login(request, user)
+            return redirect('admin:index')
+    else:
+        form = SignUpForm()
+    return render(request, 'registration/signup.html', {'form': form})
 
 # Base class for user-filtered data
 class UserFilteredListView(generics.ListAPIView):
