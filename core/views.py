@@ -489,7 +489,7 @@ class ShiftExportExcelView(APIView):
             end_date = date.fromisoformat(end_date_str)
             user = self.request.user
 
-            # Fetch data
+            # Data fetching and processing (no changes here)
             members = Member.objects.filter(created_by=user, department_id=department_id).order_by('sort_order', 'name')
             assignments = Assignment.objects.filter(
                 created_by=user, member__department_id=department_id, shift_date__range=[start_date, end_date]
@@ -504,7 +504,6 @@ class ShiftExportExcelView(APIView):
                 created_by=user, member__department_id=department_id, date__range=[start_date, end_date]
             ).select_related('member')
 
-            # Data processing
             shift_data = defaultdict(dict)
             for assignment in assignments:
                 if assignment.shift_pattern:
@@ -516,14 +515,10 @@ class ShiftExportExcelView(APIView):
             for holiday in designated_holidays:
                 shift_data[holiday.date][holiday.member_id] = "公休"
 
-            # --- Create Excel workbook using openpyxl ---
+            # --- Create Excel workbook with pivoted layout ---
             wb = openpyxl.Workbook()
             ws = wb.active
             ws.title = f"{start_date.strftime('%Y年%m月')} シフト表"
-
-            # Header
-            header = ['日付', '曜日'] + [member.name for member in members]
-            ws.append(header)
 
             # Styles
             header_font = Font(bold=True)
@@ -532,38 +527,53 @@ class ShiftExportExcelView(APIView):
             saturday_fill = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
             sunday_fill = PatternFill(start_color="FFC0CB", end_color="FFC0CB", fill_type="solid")
 
+            # Header Row (Dates)
+            date_headers = []
+            current_date = start_date
+            while current_date <= end_date:
+                date_headers.append(current_date)
+                current_date += timedelta(days=1)
+            
+            header_row = ['従業員名'] + [d.strftime('%d日(%a)') for d in date_headers]
+            ws.append(header_row)
+
+            # Style header row
             for cell in ws[1]:
                 cell.font = header_font
                 cell.alignment = center_align
                 cell.border = thin_border
 
-            # Body
-            current_date = start_date
-            while current_date <= end_date:
-                day_of_week = current_date.strftime('%a')
-                row_data = [current_date.strftime('%d'), day_of_week]
-                
-                for member in members:
-                    row_data.append(shift_data[current_date].get(member.id, ''))
+            # Style date header cells based on weekday
+            for i, d in enumerate(date_headers, start=2):
+                if d.weekday() == 5: # Saturday
+                    ws.cell(row=1, column=i).fill = saturday_fill
+                elif d.weekday() == 6: # Sunday
+                    ws.cell(row=1, column=i).fill = sunday_fill
 
+            # Data Rows (Members)
+            for member in members:
+                row_data = [member.name]
+                for d in date_headers:
+                    row_data.append(shift_data[d].get(member.id, ''))
                 ws.append(row_data)
-                
-                row_index = ws.max_row
-                for cell in ws[row_index]:
-                    cell.alignment = center_align
-                    cell.border = thin_border
-                
-                if current_date.weekday() == 5: # Saturday
-                    for cell in ws[row_index]:
-                        cell.fill = saturday_fill
-                elif current_date.weekday() == 6: # Sunday
-                    for cell in ws[row_index]:
-                        cell.fill = sunday_fill
 
-                current_date += timedelta(days=1)
+            # Apply styles to all cells
+            for row_idx, row in enumerate(ws.iter_rows(), start=1):
+                for col_idx, cell in enumerate(row, start=1):
+                    cell.border = thin_border
+                    if row_idx > 1: # Skip header row for alignment
+                        cell.alignment = center_align
+                    # Apply weekend color to data cells
+                    if row_idx > 1 and col_idx > 1:
+                        current_date_for_col = date_headers[col_idx - 2] # -2 because col_idx is 1-based and date_headers is 0-based after the first name column
+                        if current_date_for_col.weekday() == 5: # Saturday
+                            cell.fill = saturday_fill
+                        elif current_date_for_col.weekday() == 6: # Sunday
+                            cell.fill = sunday_fill
 
             # Adjust column widths
             for i, column_cells in enumerate(ws.columns):
+                is_date_col = i > 0
                 max_length = 0
                 column = utils.get_column_letter(i + 1)
                 for cell in column_cells:
@@ -572,7 +582,8 @@ class ShiftExportExcelView(APIView):
                             max_length = len(str(cell.value))
                     except:
                         pass
-                adjusted_width = (max_length + 2)
+                # Adjust width: date columns are narrower, name column is wider
+                adjusted_width = (max_length * 1.2) + 2 if is_date_col else max_length + 5
                 ws.column_dimensions[column].width = adjusted_width
 
             # Save to buffer
