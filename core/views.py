@@ -489,7 +489,7 @@ class ShiftExportExcelView(APIView):
             end_date = date.fromisoformat(end_date_str)
             user = self.request.user
 
-            # Data fetching and processing (no changes here)
+            # Data fetching
             members = Member.objects.filter(created_by=user, department_id=department_id).order_by('sort_order', 'name')
             assignments = Assignment.objects.filter(
                 created_by=user, member__department_id=department_id, shift_date__range=[start_date, end_date]
@@ -503,7 +503,11 @@ class ShiftExportExcelView(APIView):
             designated_holidays = DesignatedHoliday.objects.filter(
                 created_by=user, member__department_id=department_id, date__range=[start_date, end_date]
             ).select_related('member')
+            leave_requests = LeaveRequest.objects.filter(
+                created_by=user, member__department_id=department_id, leave_date__range=[start_date, end_date], status='approved'
+            ).select_related('member')
 
+            # Data processing with new symbols
             shift_data = defaultdict(dict)
             for assignment in assignments:
                 if assignment.shift_pattern:
@@ -511,9 +515,11 @@ class ShiftExportExcelView(APIView):
             for other in other_assignments:
                 shift_data[other.shift_date][other.member_id] = other.activity_name
             for leave in paid_leaves:
-                shift_data[leave.date][leave.member_id] = "有給"
+                shift_data[leave.date][leave.member_id] = "有"
             for holiday in designated_holidays:
-                shift_data[holiday.date][holiday.member_id] = "公休"
+                shift_data[holiday.date][holiday.member_id] = "/"
+            for req in leave_requests:
+                shift_data[req.leave_date][req.member_id] = "❌"
 
             # --- Create Excel workbook with pivoted layout ---
             wb = openpyxl.Workbook()
@@ -554,7 +560,7 @@ class ShiftExportExcelView(APIView):
             for member in members:
                 row_data = [member.name]
                 for d in date_headers:
-                    row_data.append(shift_data[d].get(member.id, ''))
+                    row_data.append(shift_data[d].get(member.id, '/')) # Default to "/"
                 ws.append(row_data)
 
             # Apply styles to all cells
@@ -565,11 +571,13 @@ class ShiftExportExcelView(APIView):
                         cell.alignment = center_align
                     # Apply weekend color to data cells
                     if row_idx > 1 and col_idx > 1:
-                        current_date_for_col = date_headers[col_idx - 2] # -2 because col_idx is 1-based and date_headers is 0-based after the first name column
-                        if current_date_for_col.weekday() == 5: # Saturday
-                            cell.fill = saturday_fill
-                        elif current_date_for_col.weekday() == 6: # Sunday
-                            cell.fill = sunday_fill
+                        # Subtract 1 from col_idx to get the correct index for date_headers
+                        if (col_idx - 2) < len(date_headers):
+                            current_date_for_col = date_headers[col_idx - 2]
+                            if current_date_for_col.weekday() == 5: # Saturday
+                                cell.fill = saturday_fill
+                            elif current_date_for_col.weekday() == 6: # Sunday
+                                cell.fill = sunday_fill
 
             # Adjust column widths
             for i, column_cells in enumerate(ws.columns):
