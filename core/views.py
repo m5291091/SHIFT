@@ -1,5 +1,6 @@
 from django.shortcuts import render, redirect
 from django.contrib.auth import login
+from django.contrib.auth.models import Group
 from .forms import SignUpForm
 
 from rest_framework import generics, status
@@ -19,6 +20,15 @@ def signup(request):
             user = form.save(commit=False)
             user.is_staff = True
             user.save()
+
+            # Add user to the "Default Staff" group
+            try:
+                staff_group = Group.objects.get(name='Default Staff')
+                user.groups.add(staff_group)
+            except Group.DoesNotExist:
+                # This case should ideally not happen if migrations are run correctly
+                pass
+
             login(request, user)
             return redirect('admin:index')
     else:
