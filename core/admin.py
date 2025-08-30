@@ -82,6 +82,9 @@ class MemberShiftPatternPreferenceInline(admin.TabularInline):
 
 class DayGroupAdmin(admin.ModelAdmin):
     list_display = ('group_name', 'is_monday', 'is_tuesday', 'is_wednesday', 'is_thursday', 'is_friday', 'is_saturday', 'is_sunday',)
+
+    class Media:
+        js = ('admin/js/daygroup_helpers.js',)
     
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -136,7 +139,7 @@ class MemberAdmin(admin.ModelAdmin):
     )
     search_fields = ('name',)
     filter_horizontal = ('allowed_day_groups',)
-    actions = ['bulk_update_min_days_off_action']
+    actions = ['bulk_update_min_days_off_action', 'delete_selected_members']
     inlines = [MemberShiftPatternPreferenceInline]
 
     def get_queryset(self, request):
@@ -234,6 +237,115 @@ class MemberAdmin(admin.ModelAdmin):
 
         context = dict(self.admin_site.each_context(request), form=form, queryset=queryset, title="最低公休日数の一括変更")
         return render(request, 'admin/core/member/bulk_update_form.html', context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path('bulk-update-days-off/', self.admin_site.admin_view(self.bulk_update_view), name='core_member_bulk_update'),
+        ]
+        return custom_urls + urls
+
+    @admin.action(description='選択した従業員の最低公休日数を変更')
+    def bulk_update_min_days_off_action(self, request, queryset):
+        selected_ids = queryset.values_list('id', flat=True)
+        # Filter queryset to only include members created by the user
+        if not request.user.is_superuser:
+            queryset = queryset.filter(created_by=request.user)
+        
+        if not queryset.exists():
+            self.message_user(request, "選択された従業員の中に、あなたが作成した従業員はいません。", level='error')
+            return
+        
+        return redirect(f"{reverse('admin:core_member_bulk_update')}?ids={','.join(map(str, selected_ids))}")
+
+    def bulk_update_view(self, request):
+        if request.method == 'POST':
+            form = BulkUpdateMinDaysOffForm(request.POST)
+            if form.is_valid():
+                new_days_off = form.cleaned_data['min_monthly_days_off']
+                selected_ids_str = request.POST.get('selected_ids')
+                selected_ids = [int(id) for id in selected_ids_str.split(',') if id]
+                
+                # Ensure only members created by the user are updated
+                members_to_update = Member.objects.filter(id__in=selected_ids)
+                if not request.user.is_superuser:
+                    members_to_update = members_to_update.filter(created_by=request.user)
+
+                updated_count = members_to_update.update(min_monthly_days_off=new_days_off)
+                self.message_user(request, f"{updated_count}人の従業員の最低公休日数を更新しました。")
+                return redirect('admin:core_member_changelist')
+        else:
+            form = BulkUpdateMinDaysOffForm()
+            ids = request.GET.get('ids')
+            queryset = Member.objects.none() # Start with empty queryset
+            if ids:
+                selected_ids = [int(id) for id in ids.split(',') if id]
+                queryset = Member.objects.filter(id__in=selected_ids)
+                if not request.user.is_superuser:
+                    queryset = queryset.filter(created_by=request.user)
+
+        context = dict(self.admin_site.each_context(request), form=form, queryset=queryset, title="最低公休日数の一括変更")
+        return render(request, 'admin/core/member/bulk_update_form.html', context)
+
+    @admin.action(description='選択した従業員を削除する')
+    def delete_selected_members(self, request, queryset):
+        if not request.user.is_superuser:
+            queryset = queryset.filter(created_by=request.user)
+        
+        if queryset.exists():
+            count = queryset.count()
+            queryset.delete()
+            self.message_user(request, f"{count} 人の従業員を削除しました。")
+        else:
+            self.message_user(request, "削除できる従業員がいません。", level='warning')
+    delete_selected_members.short_description = "選択した従業員を削除する"
+
+class MemberAvailabilityAdmin(admin.ModelAdmin):
+    list_display = ('member', 'day_of_week', 'start_time', 'end_time')
+    list_filter = ('member__department', 'member',)
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(created_by=request.user)
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "member" and not request.user.is_superuser:
+            kwargs["queryset"] = Member.objects.filter(created_by=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def has_view_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is not None:
+            return obj.created_by == request.user
+        return request.user.is_authenticated
+
+    def has_add_permission(self, request):
+        if request.user.is_superuser:
+            return True
+        return request.user.is_authenticated
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is not None:
+            return obj.created_by == request.user
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is not None:
+            return obj.created_by == request.user
+        return False
+
 
     def get_urls(self):
         urls = super().get_urls()
@@ -1152,7 +1264,7 @@ class SolverSettingsAdmin(admin.ModelAdmin):
 admin.site.register(Member, MemberAdmin)
 admin.site.register(Department, DepartmentAdmin)
 admin.site.register(DayGroup, DayGroupAdmin)
-admin.site.register(MemberAvailability)
+admin.site.register(MemberAvailability, MemberAvailabilityAdmin)
 admin.site.register(ShiftPattern, ShiftPatternAdmin)
 admin.site.register(TimeSlotRequirement, TimeSlotRequirementAdmin)
 admin.site.register(SpecificDateRequirement, SpecificDateRequirementAdmin)

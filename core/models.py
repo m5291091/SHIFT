@@ -103,7 +103,7 @@ class ShiftPattern(models.Model):
         return f"{self.department.name} / {self.pattern_name} ({self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')})"
 
 class DayGroup(models.Model):
-    group_name = models.CharField("グループ名", max_length=100, unique=True)
+    group_name = models.CharField("グループ名", max_length=100)
     is_monday = models.BooleanField("月", default=False)
     is_tuesday = models.BooleanField("火", default=False)
     is_wednesday = models.BooleanField("水", default=False)
@@ -117,6 +117,7 @@ class DayGroup(models.Model):
     class Meta:
         verbose_name = "曜日グループ"
         verbose_name_plural = "03. 曜日グループ"
+        unique_together = ('group_name', 'created_by')
 
     def __str__(self):
         return self.group_name
