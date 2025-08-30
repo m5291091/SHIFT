@@ -301,7 +301,7 @@ class MemberAdmin(admin.ModelAdmin):
     delete_selected_members.short_description = "選択した従業員を削除する"
 
 class MemberAvailabilityAdmin(admin.ModelAdmin):
-    list_display = ('member', 'day_of_week', 'start_time', 'end_time')
+    list_display = ('member', 'is_monday', 'is_tuesday', 'is_wednesday', 'is_thursday', 'is_friday', 'is_saturday', 'is_sunday', 'start_time', 'end_time')
     list_filter = ('member__department', 'member',)
 
     def get_queryset(self, request):

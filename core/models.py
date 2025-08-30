@@ -2,7 +2,7 @@ from django.db import models
 from django.conf import settings # 追加
 
 class Department(models.Model):
-    name = models.CharField("部門名", max_length=100, unique=True)
+    name = models.CharField("部門名", max_length=100)
     managers = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         related_name='managed_departments',
@@ -14,6 +14,7 @@ class Department(models.Model):
     class Meta:
         verbose_name = "部門"
         verbose_name_plural = "02. 部門"
+        unique_together = ('name', 'created_by')
 
     def __str__(self):
         return self.name
@@ -139,12 +140,14 @@ class TimeSlotRequirement(models.Model):
         return f"{self.department.name} / {self.day_group.group_name} ({self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')}): {self.min_headcount}人"
 
 class MemberAvailability(models.Model):
-    DAY_CHOICES = [
-        (0, '月曜日'), (1, '火曜日'), (2, '水曜日'), (3, '木曜日'),
-        (4, '金曜日'), (5, '土曜日'), (6, '日曜日')
-    ]
     member = models.ForeignKey(Member, on_delete=models.CASCADE, verbose_name="従業員")
-    day_of_week = models.IntegerField("曜日", choices=DAY_CHOICES)
+    is_monday = models.BooleanField("月", default=False)
+    is_tuesday = models.BooleanField("火", default=False)
+    is_wednesday = models.BooleanField("水", default=False)
+    is_thursday = models.BooleanField("木", default=False)
+    is_friday = models.BooleanField("金", default=False)
+    is_saturday = models.BooleanField("土", default=False)
+    is_sunday = models.BooleanField("日", default=False)
     start_time = models.TimeField("勤務可能開始時刻")
     end_time = models.TimeField("勤務可能終了時刻")
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="作成者")
@@ -154,7 +157,15 @@ class MemberAvailability(models.Model):
         verbose_name_plural = "04. 勤務可能条件"
 
     def __str__(self):
-        return f"{self.member.name} - {self.get_day_of_week_display()}"
+        days = []
+        if self.is_monday: days.append('月')
+        if self.is_tuesday: days.append('火')
+        if self.is_wednesday: days.append('水')
+        if self.is_thursday: days.append('木')
+        if self.is_friday: days.append('金')
+        if self.is_saturday: days.append('土')
+        if self.is_sunday: days.append('日')
+        return f"{self.member.name} - ({','.join(days)}) {self.start_time.strftime('%H:%M')} - {self.end_time.strftime('%H:%M')}"
 
 class LeaveRequest(models.Model):
     STATUS_CHOICES = [('approved', '承認'), ('pending', '申請中')]
