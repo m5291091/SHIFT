@@ -1,0 +1,47 @@
+services:
+  # ===================================
+  # Backend Service (Python/Django)
+  # ===================================
+  - type: web
+    name: shift-app-backend
+    env: python
+    plan: free # 必要に応じて変更 (e.g., starter)
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput"
+    #startCommand: "python manage.py createsuperuser --noinput --username $DJANGO_SUPERUSER_USERNAME --email $DJANGO_SUPERUSER_EMAIL && gunicorn config.wsgi:application"
+    startCommand: "gunicorn config.wsgi:application --timeout 180"
+    #startCommand: "python manage.py migrate && gunicorn config.wsgi:application"
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true # Renderが自動生成
+      - key: DEBUG
+        value: False
+      - key: ALLOWED_HOSTS
+        value: "shift-app-backend.onrender.com" # Renderのドメイン。カスタムドメイン使用時は追加
+      - key: DATABASE_URL
+        fromDatabase:
+          name: shift-app-db
+          property: connectionString
+      - key: WEB_CONCURRENCY
+        value: 2 # インスタンスタイプに応じて調整
+
+    healthCheckPath: /admin/login/ # アプリが起動しているか確認できるパス
+    autoDeploy: true
+
+  # ===================================
+  # Frontend Service (Static Site)
+  # ===================================
+  - type: static
+    name: shift-app-frontend
+    buildCommand: "cd frontend/vue-project && VITE_API_BASE_URL=https://shift-app-backend.onrender.com/api/v1/ npm install && npm run build"
+    staticPublishPath: ./frontend/vue-project/dist
+    autoDeploy: true
+    rewrites:
+      - source: /*
+        destination: /index.html
+
+# ===================================
+# Database Service (PostgreSQL)
+# ===================================
+databases:
+  - name: shift-app-db
+    plan: free # 必要に応じて変更 (e.g., starter)
